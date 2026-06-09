@@ -1,0 +1,20 @@
+export const colors = {
+  background: '#0A0A0F',
+  card: '#141418',
+  border: '#2a2a2a',
+  gold: '#C9A84C',
+  goldTransparent: '#C9A84C22',
+  goldLight: '#C9A84C33',
+  goldFaint: '#C9A84C11',
+  white: '#fff',
+  muted: '#888',
+  heroCard: '#1A1500',
+  tabBar: '#111116',
+  error: '#E05252',
+  success: '#4CAF50',
+  text: {
+    primary: '#fff',
+    secondary: '#aaa',
+    muted: '#888',
+  },
+};
