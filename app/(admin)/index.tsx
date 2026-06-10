@@ -8,9 +8,9 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Platform,
 } from 'react-native';
-import { useRouter, router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import {
   CalendarDays,
   ShoppingBag,
@@ -20,6 +20,8 @@ import {
   ChevronLeft,
   LayoutDashboard,
   LogOut,
+  TrendingUp,
+  ArrowLeft,
 } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
@@ -29,6 +31,8 @@ interface Stats {
   todayBookings: number;
   pendingOrders: number;
   pendingGroom: number;
+  weekRevenue: number;
+  monthRevenue: number;
 }
 
 interface TodayBooking {
@@ -40,7 +44,13 @@ interface TodayBooking {
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [stats, setStats] = useState<Stats>({ todayBookings: 0, pendingOrders: 0, pendingGroom: 0 });
+  const [stats, setStats] = useState<Stats>({
+    todayBookings: 0,
+    pendingOrders: 0,
+    pendingGroom: 0,
+    weekRevenue: 0,
+    monthRevenue: 0,
+  });
   const [todayBookings, setTodayBookings] = useState<TodayBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -53,7 +63,15 @@ export default function AdminDashboard() {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const [bookingsRes, ordersRes, groomRes, todayBookingsRes] = await Promise.all([
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 6);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const [bookingsRes, ordersRes, groomRes, todayBookingsRes, revenueRes] = await Promise.all([
       supabase
         .from('bookings')
         .select('id', { count: 'exact', head: true })
@@ -76,12 +94,27 @@ export default function AdminDashboard() {
         .lte('start_time', todayEnd.toISOString())
         .order('start_time', { ascending: true })
         .limit(10),
+      supabase
+        .from('perfume_orders')
+        .select('quantity, created_at, perfumes(price_ils)')
+        .eq('status', 'approved')
+        .gte('created_at', monthStart.toISOString()),
     ]);
+
+    type RevenueRow = { quantity: number; created_at: string; perfumes: { price_ils: number } | null };
+    const allRevenue = (revenueRes.data ?? []) as RevenueRow[];
+    const weekRevenue = allRevenue
+      .filter((o) => new Date(o.created_at) >= weekStart)
+      .reduce((sum, o) => sum + (o.perfumes?.price_ils ?? 0) * o.quantity, 0);
+    const monthRevenue = allRevenue
+      .reduce((sum, o) => sum + (o.perfumes?.price_ils ?? 0) * o.quantity, 0);
 
     setStats({
       todayBookings: bookingsRes.count ?? 0,
       pendingOrders: ordersRes.count ?? 0,
       pendingGroom: groomRes.count ?? 0,
+      weekRevenue,
+      monthRevenue,
     });
     setTodayBookings((todayBookingsRes.data ?? []) as TodayBooking[]);
     setLoading(false);
@@ -110,6 +143,15 @@ export default function AdminDashboard() {
       >
         {/* Header */}
         <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
+          </TouchableOpacity>
+          <View style={styles.headerTitleRow}>
+            <View style={styles.headerIconWrap}>
+              <LayoutDashboard size={20} color={colors.gold} strokeWidth={1.5} />
+            </View>
+            <Text style={styles.headerTitle}>لوحة التحكم</Text>
+          </View>
           <TouchableOpacity
             style={styles.signOutBtn}
             onPress={() => {
@@ -120,7 +162,6 @@ export default function AdminDashboard() {
                   style: 'destructive',
                   onPress: async () => {
                     await supabase.auth.signOut();
-                    window.location.replace('/');
                   },
                 },
               ]);
@@ -128,12 +169,6 @@ export default function AdminDashboard() {
           >
             <LogOut size={18} color={colors.error} strokeWidth={1.5} />
           </TouchableOpacity>
-          <View style={styles.headerTitleRow}>
-            <View style={styles.headerIconWrap}>
-              <LayoutDashboard size={20} color={colors.gold} strokeWidth={1.5} />
-            </View>
-            <Text style={styles.headerTitle}>لوحة التحكم</Text>
-          </View>
         </View>
 
         {/* Stats Row */}
@@ -158,6 +193,24 @@ export default function AdminDashboard() {
             onPress={() => router.push('/(admin)/groom-requests')}
             highlight={stats.pendingGroom > 0}
           />
+        </View>
+
+        {/* Revenue Section */}
+        <View style={styles.revenueSection}>
+          <View style={styles.revenueTitleRow}>
+            <TrendingUp size={16} color={colors.gold} strokeWidth={1.5} />
+            <Text style={styles.revenueSectionTitle}>مبيعات العطور</Text>
+          </View>
+          <View style={styles.revenueRow}>
+            <View style={styles.revenueCard}>
+              <Text style={styles.revenueLabel}>هذا الأسبوع</Text>
+              <Text style={styles.revenueValue}>{stats.weekRevenue} ₪</Text>
+            </View>
+            <View style={[styles.revenueCard, styles.revenueCardHighlight]}>
+              <Text style={styles.revenueLabel}>هذا الشهر</Text>
+              <Text style={[styles.revenueValue, styles.revenueValueHighlight]}>{stats.monthRevenue} ₪</Text>
+            </View>
+          </View>
         </View>
 
         {/* Quick Actions */}
@@ -271,10 +324,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
+    justifyContent: 'center', alignItems: 'center',
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -305,7 +363,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 20,
     gap: 10,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   statCard: {
     flex: 1,
@@ -334,6 +392,52 @@ const styles = StyleSheet.create({
   },
   statValue: { color: colors.white, fontSize: 22, fontWeight: '700' },
   statLabel: { color: colors.muted, fontSize: 10, textAlign: 'center' },
+  revenueSection: {
+    paddingHorizontal: 16,
+    marginBottom: 24,
+  },
+  revenueTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    justifyContent: 'flex-end',
+    marginBottom: 10,
+  },
+  revenueSectionTitle: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  revenueRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  revenueCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  revenueCardHighlight: {
+    borderColor: colors.goldLight,
+    backgroundColor: colors.heroCard,
+  },
+  revenueLabel: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  revenueValue: {
+    color: colors.white,
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  revenueValueHighlight: {
+    color: colors.gold,
+  },
   sectionTitle: {
     color: colors.white,
     fontSize: 15,

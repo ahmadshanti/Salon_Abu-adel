@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,12 @@ import {
   Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { User, Phone, Mail, CalendarDays, Clock, LogOut, Camera } from 'lucide-react-native';
+import { User, Phone, Mail, CalendarDays, Clock, LogOut, Camera, ArrowLeft } from 'lucide-react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { formatDate, formatTime } from '../../lib/utils/time';
+import { uploadImage } from '../../lib/utils/uploadImage';
 
 interface UserProfile {
   full_name: string;
@@ -31,6 +33,7 @@ interface Booking {
 }
 
 export default function Profile() {
+  const router = useRouter();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [email, setEmail] = useState('');
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -39,9 +42,7 @@ export default function Profile() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [userId, setUserId] = useState('');
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useFocusEffect(useCallback(() => { loadData(); }, []));
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -87,7 +88,7 @@ export default function Profile() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: 'images' as any,
       quality: 0.7,
       allowsEditing: true,
       aspect: [1, 1],
@@ -96,31 +97,37 @@ export default function Profile() {
     if (result.canceled || !result.assets[0]) return;
 
     setUploadingAvatar(true);
-    try {
-      const uri = result.assets[0].uri;
-      const filename = `avatar_${userId}_${Date.now()}.jpg`;
-      const response = await fetch(uri);
-      const blob = await response.blob();
+    const { url: avatarUrl, error: uploadError } = await uploadImage(result.assets[0].uri, 'avatars', `avatar_${userId}`);
+    setUploadingAvatar(false);
 
-      const { data, error } = await supabase.storage
-        .from('avatars')
-        .upload(filename, blob, { contentType: 'image/jpeg', upsert: true });
-
-      if (error || !data) {
-        Alert.alert('خطأ', 'فشل رفع الصورة');
-        return;
-      }
-
-      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(data.path);
-      const avatarUrl = urlData.publicUrl;
-
-      await supabase.from('users').update({ avatar_url: avatarUrl }).eq('id', userId);
-      setProfile((prev) => prev ? { ...prev, avatar_url: avatarUrl } : prev);
-    } catch {
-      Alert.alert('خطأ', 'حدث خطأ أثناء رفع الصورة');
-    } finally {
-      setUploadingAvatar(false);
+    if (uploadError || !avatarUrl) {
+      Alert.alert('خطأ في رفع الصورة', uploadError ?? 'حاول مرة أخرى');
+      return;
     }
+
+    await supabase.from('users').update({ avatar_url: avatarUrl }).eq('id', userId);
+    setProfile((prev) => prev ? { ...prev, avatar_url: avatarUrl } : prev);
+  }
+
+  async function cancelBooking(bookingId: string) {
+    Alert.alert('إلغاء الموعد', 'هل أنت متأكد من إلغاء هذا الموعد؟', [
+      { text: 'رجوع', style: 'cancel' },
+      {
+        text: 'إلغاء الموعد',
+        style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase
+            .from('bookings')
+            .update({ status: 'cancelled' })
+            .eq('id', bookingId);
+          if (!error) {
+            setBookings((prev) =>
+              prev.map((b) => (b.id === bookingId ? { ...b, status: 'cancelled' } : b)),
+            );
+          }
+        },
+      },
+    ]);
   }
 
   if (loading) {
@@ -144,6 +151,10 @@ export default function Profile() {
 
         {/* Header */}
         <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>حسابي</Text>
           <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut} disabled={signingOut}>
             {signingOut ? (
               <ActivityIndicator size="small" color={colors.error} />
@@ -151,7 +162,6 @@ export default function Profile() {
               <LogOut size={18} color={colors.error} strokeWidth={1.5} />
             )}
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>حسابي</Text>
         </View>
 
         {/* Avatar + Name */}
@@ -204,7 +214,13 @@ export default function Profile() {
               <Text style={styles.emptyText}>لا يوجد مواعيد قادمة</Text>
             </View>
           ) : (
-            upcoming.map((b) => <BookingCard key={b.id} booking={b} />)
+            upcoming.map((b) => (
+              <BookingCard
+                key={b.id}
+                booking={b}
+                onCancel={() => cancelBooking(b.id)}
+              />
+            ))
           )}
         </View>
 
@@ -221,7 +237,15 @@ export default function Profile() {
   );
 }
 
-function BookingCard({ booking, past = false }: { booking: Booking; past?: boolean }) {
+function BookingCard({
+  booking,
+  past = false,
+  onCancel,
+}: {
+  booking: Booking;
+  past?: boolean;
+  onCancel?: () => void;
+}) {
   const isCancelled = booking.status === 'cancelled';
   return (
     <View style={[styles.bookingCard, past && styles.bookingCardPast]}>
@@ -248,10 +272,17 @@ function BookingCard({ booking, past = false }: { booking: Booking; past?: boole
           )}
         </View>
       </View>
-      <View style={[styles.statusBadge, isCancelled && styles.statusBadgeCancelled]}>
-        <Text style={[styles.statusText, isCancelled && styles.statusTextCancelled]}>
-          {isCancelled ? 'ملغي' : 'مؤكد'}
-        </Text>
+      <View style={styles.bookingRight}>
+        <View style={[styles.statusBadge, isCancelled && styles.statusBadgeCancelled]}>
+          <Text style={[styles.statusText, isCancelled && styles.statusTextCancelled]}>
+            {isCancelled ? 'ملغي' : 'مؤكد'}
+          </Text>
+        </View>
+        {onCancel && !isCancelled && (
+          <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
+            <Text style={styles.cancelBtnText}>إلغاء</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -270,6 +301,11 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   headerTitle: { color: colors.white, fontSize: 22, fontWeight: '700' },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
+    justifyContent: 'center', alignItems: 'center',
+  },
   signOutBtn: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: '#E0525211', justifyContent: 'center', alignItems: 'center',
@@ -317,7 +353,7 @@ const styles = StyleSheet.create({
   bookingCard: {
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.goldLight,
     borderRadius: 16, padding: 14, flexDirection: 'row',
-    justifyContent: 'space-between', alignItems: 'center', marginBottom: 10,
+    justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10,
   },
   bookingCardPast: { borderColor: colors.border, opacity: 0.7 },
   bookingCardLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
@@ -330,8 +366,18 @@ const styles = StyleSheet.create({
   bookingTimeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
   bookingTime: { color: colors.muted, fontSize: 11 },
   bookingPrice: { color: colors.gold, fontSize: 12, fontWeight: '700', marginTop: 2, textAlign: 'right' },
+  bookingRight: { alignItems: 'flex-end', gap: 6 },
   statusBadge: { backgroundColor: colors.goldTransparent, borderRadius: 20, paddingVertical: 4, paddingHorizontal: 10 },
   statusBadgeCancelled: { backgroundColor: '#E0525211' },
   statusText: { color: colors.gold, fontSize: 11, fontWeight: '700' },
   statusTextCancelled: { color: colors.error },
+  cancelBtn: {
+    backgroundColor: '#E0525211',
+    borderRadius: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#E0525233',
+  },
+  cancelBtnText: { color: colors.error, fontSize: 11, fontWeight: '700' },
 });

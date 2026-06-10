@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,438 +7,457 @@ import {
   StyleSheet,
   Dimensions,
   ActivityIndicator,
+  Image,
+  RefreshControl,
+  Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Scissors, Sparkles, CalendarDays, ChevronRight, Clock, User } from 'lucide-react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Scissors, Sparkles, CalendarDays, ChevronLeft, Clock, User } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
-import { colors } from '../../constants/theme';
 import { formatDate, formatTime } from '../../lib/utils/time';
 
 const { width } = Dimensions.get('window');
 
-interface Service {
-  id: string;
-  name: string;
-  price_ils: number;
-  duration_minutes: number;
-}
+const GOLD       = '#D4AF37';
+const BG         = '#0B0B0F';
+const CARD       = 'rgba(255,255,255,0.05)';
+const BORDER     = 'rgba(255,255,255,0.08)';
+const GOLD_BG    = 'rgba(212,175,55,0.10)';
+const GOLD_BORD  = 'rgba(212,175,55,0.25)';
+const WHITE      = '#FFFFFF';
+const MUTED      = 'rgba(255,255,255,0.42)';
+const NAV_H      = Platform.OS === 'ios' ? 92 : 70;   // navbar height incl. safe area
+const HERO_H     = 300;                               // pure image height below navbar
 
-interface Booking {
-  id: string;
-  start_time: string;
-  services: { name: string } | null;
-  status: string;
-}
-
-interface UserProfile {
-  full_name: string;
-}
+interface Service    { id: string; name: string; price_ils: number; duration_minutes: number; }
+interface Booking    { id: string; start_time: string; services: { name: string } | null; status: string; }
+interface GalleryImg { id: string; image_url: string; display_order: number; }
+interface Perfume    { id: string; name: string; price_ils: number; image_url: string | null; }
 
 export default function Home() {
   const router = useRouter();
-  const [services, setServices] = useState<Service[]>([]);
+  const [services,    setServices]    = useState<Service[]>([]);
   const [nextBooking, setNextBooking] = useState<Booking | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [gallery,     setGallery]     = useState<GalleryImg[]>([]);
+  const [perfumes,    setPerfumes]    = useState<Perfume[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [idx,         setIdx]         = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useFocusEffect(useCallback(() => { load(); }, []));
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (gallery.length <= 1) return;
+    timerRef.current = setInterval(() => {
+      setIdx((p) => {
+        const n = (p + 1) % gallery.length;
+        scrollRef.current?.scrollTo({ x: n * width, animated: true });
+        return n;
+      });
+    }, 4500);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [gallery.length]);
 
-  async function loadData() {
+  const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-
-    const [profileRes, servicesRes, bookingRes] = await Promise.all([
-      supabase.from('users').select('full_name').eq('id', user.id).single(),
-      supabase.from('services').select('*').eq('is_active', true).limit(5),
-      supabase
-        .from('bookings')
+    const [svcRes, bkRes, galRes, perfRes] = await Promise.all([
+      supabase.from('services').select('*').eq('is_active', true).limit(6),
+      supabase.from('bookings')
         .select('id, start_time, status, services(name)')
         .eq('user_id', user.id)
-        .eq('status', 'confirmed')
+        .in('status', ['confirmed', 'pending'])
         .gte('start_time', new Date().toISOString())
         .order('start_time', { ascending: true })
-        .limit(1)
-        .single(),
+        .limit(1).single(),
+      supabase.from('gallery')
+        .select('id, image_url, display_order')
+        .order('display_order', { ascending: true }).limit(10),
+      supabase.from('perfumes')
+        .select('id, name, price_ils, image_url')
+        .eq('is_active', true).limit(6),
     ]);
-
-    setProfile(profileRes.data);
-    setServices(servicesRes.data ?? []);
-    setNextBooking(bookingRes.data ?? null);
+    setServices(svcRes.data ?? []);
+    setNextBooking(bkRes.data ?? null);
+    setGallery(galRes.data ?? []);
+    setPerfumes(perfRes.data ?? []);
     setLoading(false);
-  }
-
-  const firstName = profile?.full_name?.split(' ')[0] ?? '';
+    setRefreshing(false);
+  }, []);
 
   return (
-    <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+    <View style={s.screen}>
 
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>مرحباً،</Text>
-            <Text style={styles.name}>{firstName || 'صالون أبو عادل'}</Text>
-          </View>
-          <TouchableOpacity style={styles.avatarBtn} onPress={() => router.push('/(user)/profile')}>
-            <User size={18} color={colors.gold} strokeWidth={1.5} />
-          </TouchableOpacity>
+      {/* ═══════════════════════════
+          FIXED TOP NAVBAR — in normal flow, images start below it
+      ═══════════════════════════ */}
+      <View style={s.navbar}>
+        <TouchableOpacity style={s.profileBtn} onPress={() => router.push('/(user)/profile')}>
+          <User size={16} color={GOLD} strokeWidth={1.5} />
+        </TouchableOpacity>
+        <View style={s.navTitleRow}>
+          <View style={s.navDot} />
+          <Text style={s.navTitle}>صالون أبو عادل</Text>
         </View>
+      </View>
 
-        {/* Hero Card */}
-        <View style={styles.heroCard}>
-          <View style={styles.heroDeco1} />
-          <View style={styles.heroDeco2} />
-          <Text style={styles.heroLabel}>خدمة فاخرة</Text>
-          <Text style={styles.heroTitle}>احجز موعدك الآن</Text>
-          <Text style={styles.heroSub}>خدمة فاخرة بأفضل الأسعار</Text>
+      {/* ═══════════════════════════
+          SCROLL CONTENT — starts right below navbar
+      ═══════════════════════════ */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={s.scroll}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={GOLD} />
+        }
+      >
+
+        {/* ── Carousel (starts at top, image goes behind navbar) ── */}
+        <View style={s.carouselWrap}>
+          {gallery.length > 0 ? (
+            <ScrollView
+              ref={scrollRef}
+              horizontal pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(e) => setIdx(Math.round(e.nativeEvent.contentOffset.x / width))}
+              scrollEventThrottle={16}
+              style={{ height: HERO_H }}
+            >
+              {gallery.map((img) => (
+                <Image
+                  key={img.id}
+                  source={{ uri: img.image_url }}
+                  style={{ width, height: HERO_H }}
+                  resizeMode="cover"
+                />
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={[{ width, height: HERO_H }, s.heroPlaceholder]} />
+          )}
+
+          {/* Dots — bottom of carousel */}
+          {gallery.length > 1 && (
+            <View style={s.dotsRow}>
+              {gallery.map((_, i) => (
+                <View key={i} style={[s.dot, i === idx && s.dotOn]} />
+              ))}
+            </View>
+          )}
+
+          {/* Book CTA — bottom-left of carousel */}
           <TouchableOpacity
-            style={styles.heroBtn}
+            style={s.heroCtaBtn}
             onPress={() => router.push('/(user)/booking')}
           >
-            <Text style={styles.heroBtnText}>احجز الآن</Text>
-            <ChevronRight size={14} color={colors.background} strokeWidth={2.5} />
+            <Text style={s.heroCtaText}>احجز الآن</Text>
+            <ChevronLeft size={14} color={BG} strokeWidth={2.5} />
           </TouchableOpacity>
         </View>
 
-        {/* Services */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>خدماتنا</Text>
-            <TouchableOpacity onPress={() => router.push('/(user)/booking')}>
-              <Text style={styles.seeAll}>عرض الكل</Text>
+        {/* ── Next Booking ── */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>موعدك القادم</Text>
+          {loading ? (
+            <ActivityIndicator color={GOLD} style={{ marginTop: 12 }} />
+          ) : nextBooking ? (
+            <View style={s.bookingCard}>
+              <View style={s.bookRow}>
+                <View style={s.bookIcon}>
+                  <CalendarDays size={20} color={GOLD} strokeWidth={1.5} />
+                </View>
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={s.bookName}>{nextBooking.services?.name ?? 'موعد'}</Text>
+                  <View style={s.timeRow}>
+                    <Clock size={11} color={MUTED} strokeWidth={1.5} />
+                    <Text style={s.timeText}>
+                      {formatDate(new Date(nextBooking.start_time))} • {formatTime(new Date(nextBooking.start_time))}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[s.badge, nextBooking.status === 'pending' ? s.badgePend : s.badgeConf]}>
+                  <Text style={s.badgeTxt}>{nextBooking.status === 'pending' ? 'معلق' : 'مؤكد'}</Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity style={s.emptyCard} onPress={() => router.push('/(user)/booking')}>
+              <View style={s.emptyIcon}>
+                <CalendarDays size={24} color={GOLD} strokeWidth={1} />
+              </View>
+              <Text style={s.emptyMsg}>لا يوجد موعد قادم</Text>
+              <Text style={s.emptyLink}>احجز الآن ←</Text>
             </TouchableOpacity>
+          )}
+        </View>
+
+        {/* ── Services ── */}
+        <View style={s.section}>
+          <View style={s.rowBetween}>
+            <TouchableOpacity onPress={() => router.push('/(user)/booking')}>
+              <Text style={s.seeAll}>عرض الكل</Text>
+            </TouchableOpacity>
+            <Text style={s.sectionTitle}>خدماتنا</Text>
           </View>
           {loading ? (
-            <ActivityIndicator color={colors.gold} style={{ marginTop: 10 }} />
+            <ActivityIndicator color={GOLD} />
           ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {services.map((service) => (
-                <TouchableOpacity
-                  key={service.id}
-                  style={styles.serviceCard}
-                  onPress={() => router.push('/(user)/booking')}
-                >
-                  <View style={styles.serviceIconWrap}>
-                    <Scissors size={20} color={colors.gold} strokeWidth={1.5} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 2 }}>
+              {services.map((sv) => (
+                <TouchableOpacity key={sv.id} style={s.svcCard} onPress={() => router.push('/(user)/booking')}>
+                  <View style={s.svcIcon}>
+                    <Scissors size={20} color={GOLD} strokeWidth={1.5} />
                   </View>
-                  <Text style={styles.serviceName}>{service.name}</Text>
-                  <Text style={styles.servicePrice}>{service.price_ils} ₪</Text>
+                  <Text style={s.svcName} numberOfLines={2}>{sv.name}</Text>
+                  <Text style={s.svcPrice}>{sv.price_ils} ₪</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                    <Clock size={10} color={MUTED} strokeWidth={1.5} />
+                    <Text style={s.svcDur}>{sv.duration_minutes} د</Text>
+                  </View>
                 </TouchableOpacity>
               ))}
             </ScrollView>
           )}
         </View>
 
-        {/* Next Booking */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>موعدك القادم</Text>
-          {nextBooking ? (
-            <View style={styles.bookingCard}>
-              <View style={styles.bookingLeft}>
-                <View style={styles.bookingIconWrap}>
-                  <CalendarDays size={20} color={colors.gold} strokeWidth={1.5} />
-                </View>
-                <View>
-                  <Text style={styles.bookingTitle}>
-                    {nextBooking.services?.name ?? 'موعد'}
-                  </Text>
-                  <View style={styles.bookingTimeRow}>
-                    <Clock size={12} color={colors.muted} strokeWidth={1.5} />
-                    <Text style={styles.bookingTime}>
-                      {formatDate(new Date(nextBooking.start_time))} • {formatTime(new Date(nextBooking.start_time))}
-                    </Text>
+        {/* ── Perfumes Section ── */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>متجر العطور</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 4 }}>
+            {perfumes.length === 0 ? (
+              <View style={s.perfEmpty}>
+                <Sparkles size={26} color={GOLD} strokeWidth={1.5} />
+                <Text style={s.perfEmptyText}>لا توجد عطور حالياً</Text>
+              </View>
+            ) : perfumes.map((p) => (
+              <TouchableOpacity key={p.id} style={s.perfCard} onPress={() => router.push('/(user)/perfumes')}>
+                {p.image_url ? (
+                  <Image source={{ uri: p.image_url }} style={s.perfCardImg} resizeMode="cover" />
+                ) : (
+                  <View style={s.perfCardPlaceholder}>
+                    <Sparkles size={24} color={GOLD} strokeWidth={1.5} />
                   </View>
+                )}
+                <View style={s.perfCardBody}>
+                  <Text style={s.perfCardName} numberOfLines={2}>{p.name}</Text>
+                  <Text style={s.perfCardPrice}>{p.price_ils} ₪</Text>
                 </View>
-              </View>
-              <View style={styles.bookingBadge}>
-                <Text style={styles.bookingBadgeText}>مؤكد</Text>
-              </View>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.emptyBooking}
-              onPress={() => router.push('/(user)/booking')}
-            >
-              <CalendarDays size={24} color={colors.muted} strokeWidth={1.5} />
-              <Text style={styles.emptyText}>لا يوجد موعد قادم</Text>
-              <Text style={styles.emptyAction}>احجز الآن</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
-        {/* Perfumes Banner */}
-        <TouchableOpacity
-          style={styles.perfumeBanner}
-          onPress={() => router.push('/(user)/perfumes')}
-        >
-          <View>
-            <Text style={styles.perfumeLabel}>متجر العطور</Text>
-            <Text style={styles.perfumeTitle}>اكتشف عطورنا الفاخرة</Text>
-          </View>
-          <View style={styles.perfumeBtnWrap}>
-            <Sparkles size={18} color={colors.gold} strokeWidth={1.5} />
-          </View>
-        </TouchableOpacity>
+          {/* CTA */}
+          <TouchableOpacity style={s.exploreBtn} onPress={() => router.push('/(user)/perfumes')}>
+            <Sparkles size={15} color={BG} strokeWidth={2} />
+            <Text style={s.exploreBtnTxt}>استكشف باقي العطور</Text>
+            <ChevronLeft size={13} color={BG} strokeWidth={2.5} />
+          </TouchableOpacity>
+        </View>
 
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scroll: {
-    paddingBottom: 30,
-  },
-  header: {
+const s = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: BG },
+  scroll: { paddingBottom: 40 },
+
+  /* ── Navbar — sits above carousel in normal flow ── */
+  navbar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'ios' ? 54 : 32,
+    paddingBottom: 12,
     paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 10,
+    backgroundColor: BG,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(212,175,55,0.18)',
   },
-  greeting: {
-    color: colors.muted,
-    fontSize: 13,
-    marginBottom: 2,
-    textAlign: 'right',
-  },
-  name: {
-    color: colors.white,
-    fontSize: 22,
-    fontWeight: '700',
-    textAlign: 'right',
-  },
-  avatarBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.goldTransparent,
+  navTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  navTitle: { color: WHITE, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
+  navDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GOLD },
+  profileBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: GOLD_BG,
     borderWidth: 1,
-    borderColor: colors.goldLight,
+    borderColor: GOLD_BORD,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  heroCard: {
-    margin: 20,
-    backgroundColor: colors.heroCard,
-    borderRadius: 24,
-    padding: 24,
+
+  /* ── Carousel ── */
+  carouselWrap: { position: 'relative', width },
+  heroPlaceholder: { backgroundColor: '#18181f' },
+  dotsRow: {
+    position: 'absolute',
+    bottom: 14,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  dot:   { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.35)' },
+  dotOn: { width: 18, backgroundColor: GOLD },
+  heroCtaBtn: {
+    position: 'absolute',
+    bottom: 14,
+    left: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: GOLD,
+    borderRadius: 30,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+  },
+  heroCtaText: { color: BG, fontSize: 13, fontWeight: '700' },
+
+  /* ── Sections ── */
+  section: { paddingHorizontal: 20, marginTop: 26 },
+  sectionTitle: { color: WHITE, fontSize: 16, fontWeight: '700', textAlign: 'right', marginBottom: 12 },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  seeAll: { color: GOLD, fontSize: 13 },
+
+  /* ── Booking card ── */
+  bookingCard: {
+    backgroundColor: CARD,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.goldLight,
+    borderColor: GOLD_BORD,
+    padding: 16,
+  },
+  bookRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bookIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: GOLD_BG,
+    borderWidth: 1,
+    borderColor: GOLD_BORD,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bookName:  { color: WHITE, fontSize: 14, fontWeight: '700', textAlign: 'right' },
+  timeRow:   { flexDirection: 'row', alignItems: 'center', gap: 4, justifyContent: 'flex-end' },
+  timeText:  { color: MUTED, fontSize: 11 },
+  badge:     { borderRadius: 20, paddingVertical: 5, paddingHorizontal: 11, borderWidth: 1 },
+  badgeConf: { backgroundColor: GOLD_BG, borderColor: GOLD_BORD },
+  badgePend: { backgroundColor: 'rgba(255,200,50,0.07)', borderColor: 'rgba(255,200,50,0.28)' },
+  badgeTxt:  { color: GOLD, fontSize: 11, fontWeight: '700' },
+
+  /* ── Empty booking ── */
+  emptyCard: {
+    backgroundColor: CARD,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 26,
+    alignItems: 'center',
+    gap: 10,
+  },
+  emptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: GOLD_BG,
+    borderWidth: 1,
+    borderColor: GOLD_BORD,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyMsg:  { color: MUTED, fontSize: 13 },
+  emptyLink: { color: GOLD, fontSize: 13, fontWeight: '700' },
+
+  /* ── Service cards ── */
+  svcCard: {
+    backgroundColor: CARD,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 20,
+    padding: 14,
+    alignItems: 'center',
+    width: 118,
+    gap: 7,
+  },
+  svcIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: GOLD_BG,
+    borderWidth: 1,
+    borderColor: GOLD_BORD,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  svcName:  { color: WHITE, fontSize: 11, fontWeight: '600', textAlign: 'center', lineHeight: 15 },
+  svcPrice: { color: GOLD, fontSize: 13, fontWeight: '800' },
+  svcDur:   { color: MUTED, fontSize: 10 },
+
+  /* ── Perfume banner ── */
+  perfBanner: {
+    marginHorizontal: 20,
+    marginTop: 26,
+    backgroundColor: CARD,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
     overflow: 'hidden',
   },
-  heroDeco1: {
+  perfDeco: {
     position: 'absolute',
-    right: -20,
+    left: -20,
     top: -20,
-    width: 120,
-    height: 120,
-    backgroundColor: colors.goldFaint,
-    borderRadius: 60,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: GOLD_BG,
   },
-  heroDeco2: {
-    position: 'absolute',
-    right: 30,
-    top: 20,
-    width: 60,
-    height: 60,
-    backgroundColor: '#C9A84C0A',
-    borderRadius: 30,
-  },
-  heroLabel: {
-    color: colors.gold,
-    fontSize: 11,
-    letterSpacing: 2,
-    marginBottom: 8,
-    fontWeight: '600',
-    textAlign: 'right',
-  },
-  heroTitle: {
-    color: colors.white,
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 6,
-    textAlign: 'right',
-  },
-  heroSub: {
-    color: colors.muted,
-    fontSize: 13,
-    marginBottom: 20,
-    textAlign: 'right',
-  },
-  heroBtn: {
-    backgroundColor: colors.gold,
-    borderRadius: 30,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-  },
-  heroBtnText: {
-    color: colors.background,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  section: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  sectionTitle: {
-    color: colors.white,
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 14,
-    textAlign: 'right',
-  },
-  seeAll: {
-    color: colors.gold,
-    fontSize: 13,
-  },
-  serviceCard: {
-    backgroundColor: colors.card,
+  perfIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: GOLD_BG,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 18,
-    padding: 16,
-    marginRight: 12,
-    alignItems: 'center',
-    width: 110,
-  },
-  serviceIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.goldFaint,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  serviceName: {
-    color: colors.white,
-    fontSize: 11,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  servicePrice: {
-    color: colors.gold,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  bookingCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.goldLight,
-    borderRadius: 18,
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  bookingLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  bookingIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.goldFaint,
+    borderColor: GOLD_BORD,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  bookingTitle: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 4,
-    textAlign: 'right',
-  },
-  bookingTimeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  bookingTime: {
-    color: colors.muted,
-    fontSize: 11,
-  },
-  bookingBadge: {
-    backgroundColor: colors.goldTransparent,
+  /* ── Perfume cards ── */
+  perfCard: {
+    width: 136,
+    backgroundColor: CARD,
     borderRadius: 20,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-  },
-  bookingBadgeText: {
-    color: colors.gold,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  emptyBooking: {
-    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 18,
-    padding: 24,
-    alignItems: 'center',
-    gap: 8,
+    borderColor: BORDER,
+    overflow: 'hidden',
   },
-  emptyText: {
-    color: colors.muted,
-    fontSize: 13,
-  },
-  emptyAction: {
-    color: colors.gold,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  perfumeBanner: {
-    marginHorizontal: 20,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 18,
-    padding: 20,
+  perfCardImg:         { width: 136, height: 120 },
+  perfCardPlaceholder: { width: 136, height: 120, backgroundColor: GOLD_BG, justifyContent: 'center', alignItems: 'center' },
+  perfCardBody:        { padding: 10, gap: 4 },
+  perfCardName:        { color: WHITE, fontSize: 11.5, fontWeight: '600', textAlign: 'right', lineHeight: 16 },
+  perfCardPrice:       { color: GOLD, fontSize: 14, fontWeight: '800', textAlign: 'right' },
+  perfEmpty:           { width: 180, backgroundColor: CARD, borderRadius: 20, borderWidth: 1, borderColor: BORDER, padding: 28, alignItems: 'center', gap: 10 },
+  perfEmptyText:       { color: MUTED, fontSize: 13 },
+  exploreBtn: {
+    backgroundColor: GOLD,
+    borderRadius: 14,
+    paddingVertical: 14,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  perfumeLabel: {
-    color: colors.gold,
-    fontSize: 11,
-    letterSpacing: 1,
-    marginBottom: 4,
-    fontWeight: '600',
-    textAlign: 'right',
-  },
-  perfumeTitle: {
-    color: colors.white,
-    fontSize: 14,
-    fontWeight: '700',
-    textAlign: 'right',
-  },
-  perfumeBtnWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.goldFaint,
     justifyContent: 'center',
-    alignItems: 'center',
+    gap: 8,
+    marginTop: 14,
   },
+  exploreBtnTxt: { color: BG, fontSize: 14, fontWeight: '800' },
 });

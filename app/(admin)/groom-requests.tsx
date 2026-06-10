@@ -10,8 +10,10 @@ import {
   Modal,
   TextInput,
   RefreshControl,
+  Platform,
 } from 'react-native';
-import { Users, Clock, Check, X, Calendar, MessageCircle } from 'lucide-react-native';
+import { Users, Clock, Check, X, Calendar, MessageCircle, ArrowLeft } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import { Linking } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
@@ -33,6 +35,7 @@ interface GroomRequest {
 }
 
 export default function AdminGroomRequests() {
+  const router = useRouter();
   const [requests, setRequests] = useState<GroomRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -144,10 +147,15 @@ export default function AdminGroomRequests() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.headerIconWrap}>
-          <Users size={20} color={colors.gold} strokeWidth={1.5} />
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
+        </TouchableOpacity>
+        <View style={styles.headerTitleRow}>
+          <View style={styles.headerIconWrap}>
+            <Users size={20} color={colors.gold} strokeWidth={1.5} />
+          </View>
+          <Text style={styles.headerTitle}>طلبات العريس</Text>
         </View>
-        <Text style={styles.headerTitle}>طلبات العريس</Text>
       </View>
 
       <ScrollView
@@ -339,9 +347,15 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10,
-    paddingHorizontal: 20, paddingTop: 60, paddingBottom: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 16,
     borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
+    justifyContent: 'center', alignItems: 'center',
   },
   headerIconWrap: {
     width: 36, height: 36, borderRadius: 18,

@@ -9,6 +9,7 @@ import {
   Users,
   Clock,
   UserCircle,
+  LayoutGrid,
 } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
@@ -25,11 +26,11 @@ function TabIcon({
   return (
     <View style={styles.tabItem}>
       <Icon
-        size={20}
+        size={19}
         color={focused ? colors.gold : '#555'}
         strokeWidth={focused ? 2 : 1.5}
       />
-      <Text style={[styles.tabLabel, focused && styles.tabLabelActive]}>
+      <Text style={[styles.tabLabel, focused && styles.tabLabelActive]} numberOfLines={1}>
         {label}
       </Text>
       {focused && <View style={styles.dot} />}
@@ -59,7 +60,7 @@ export default function AdminLayout() {
         name="index"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon Icon={LayoutDashboard} label="لوحة التحكم" focused={focused} />
+            <TabIcon Icon={LayoutDashboard} label="الرئيسية" focused={focused} />
           ),
         }}
       />
@@ -67,7 +68,7 @@ export default function AdminLayout() {
         name="bookings"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon Icon={CalendarDays} label="الحجوزات" focused={focused} />
+            <TabIcon Icon={CalendarDays} label="حجوزات" focused={focused} />
           ),
         }}
       />
@@ -75,7 +76,7 @@ export default function AdminLayout() {
         name="services"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon Icon={Scissors} label="الخدمات" focused={focused} />
+            <TabIcon Icon={Scissors} label="خدمات" focused={focused} />
           ),
         }}
       />
@@ -83,7 +84,7 @@ export default function AdminLayout() {
         name="perfumes"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon Icon={Sparkles} label="العطور" focused={focused} />
+            <TabIcon Icon={Sparkles} label="عطور" focused={focused} />
           ),
         }}
       />
@@ -91,7 +92,7 @@ export default function AdminLayout() {
         name="groom-requests"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon Icon={Users} label="طلبات" focused={focused} />
+            <TabIcon Icon={Users} label="عريس" focused={focused} />
           ),
         }}
       />
@@ -99,7 +100,7 @@ export default function AdminLayout() {
         name="customers"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon Icon={UserCircle} label="الزبائن" focused={focused} />
+            <TabIcon Icon={UserCircle} label="زبائن" focused={focused} />
           ),
         }}
       />
@@ -111,35 +112,52 @@ export default function AdminLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="gallery"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon Icon={LayoutGrid} label="الصور" focused={focused} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: colors.tabBar,
-    borderTopColor: colors.border,
+    backgroundColor: '#0E0E13',
+    borderTopColor: '#1e1e24',
     borderTopWidth: 1,
-    height: 70,
-    paddingBottom: 10,
-    paddingTop: 8,
+    height: 68,
+    paddingBottom: 8,
+    paddingTop: 6,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
   },
   tabItem: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 2,
+    width: 50,
   },
   tabLabel: {
     fontSize: 9,
-    color: '#555',
+    color: '#444',
     fontWeight: '500',
+    textAlign: 'center',
+    width: 50,
   },
   tabLabelActive: {
     color: colors.gold,
+    fontWeight: '700',
   },
   dot: {
-    width: 4,
-    height: 4,
+    width: 12,
+    height: 3,
     borderRadius: 2,
     backgroundColor: colors.gold,
     marginTop: 1,

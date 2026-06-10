@@ -9,8 +9,12 @@ import {
   RefreshControl,
   TextInput,
   Linking,
+  Image,
+  Platform,
+  Alert,
 } from 'react-native';
-import { UserCircle, MessageCircle, Search, CalendarDays, ShoppingBag } from 'lucide-react-native';
+import { UserCircle, MessageCircle, Search, CalendarDays, ShoppingBag, Trash2, ArrowLeft } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 
@@ -19,6 +23,7 @@ interface Customer {
   full_name: string;
   whatsapp_number: string;
   created_at: string;
+  avatar_url: string | null;
   booking_count?: number;
   order_count?: number;
 }
@@ -29,11 +34,13 @@ function openWhatsApp(phone: string, message = '') {
 }
 
 export default function AdminCustomers() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [filtered, setFiltered] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const [customers,  setCustomers]  = useState<Customer[]>([]);
+  const [filtered,   setFiltered]   = useState<Customer[]>([]);
+  const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search,     setSearch]     = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -53,7 +60,7 @@ export default function AdminCustomers() {
   const load = useCallback(async () => {
     const { data } = await supabase
       .from('users')
-      .select('id, full_name, whatsapp_number, created_at')
+      .select('id, full_name, whatsapp_number, created_at, avatar_url')
       .eq('role', 'customer')
       .order('created_at', { ascending: false });
 
@@ -99,6 +106,33 @@ export default function AdminCustomers() {
 
   function onRefresh() { setRefreshing(true); load(); }
 
+  function confirmDelete(customer: Customer) {
+    Alert.alert(
+      'حذف الزبون',
+      `هل أنت متأكد من حذف "${customer.full_name}"؟\nسيتم حذف جميع بياناته وحجوزاته نهائياً.`,
+      [
+        { text: 'إلغاء', style: 'cancel' },
+        { text: 'حذف', style: 'destructive', onPress: () => deleteCustomer(customer.id) },
+      ],
+    );
+  }
+
+  async function deleteCustomer(userId: string) {
+    setDeletingId(userId);
+    const [b, o, g] = await Promise.all([
+      supabase.from('bookings').delete().eq('user_id', userId),
+      supabase.from('perfume_orders').delete().eq('user_id', userId),
+      supabase.from('groom_requests').delete().eq('user_id', userId),
+    ]);
+    const { error } = await supabase.from('users').delete().eq('id', userId);
+    setDeletingId(null);
+    if (error) {
+      Alert.alert('خطأ', 'فشل الحذف: ' + error.message);
+      return;
+    }
+    setCustomers((prev) => prev.filter((c) => c.id !== userId));
+  }
+
   function formatJoinDate(dateStr: string) {
     return new Date(dateStr).toLocaleDateString('ar-SA', {
       year: 'numeric', month: 'long', day: 'numeric',
@@ -112,10 +146,15 @@ export default function AdminCustomers() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.headerIconWrap}>
-          <UserCircle size={20} color={colors.gold} strokeWidth={1.5} />
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
+        </TouchableOpacity>
+        <View style={styles.headerTitleRow}>
+          <View style={styles.headerIconWrap}>
+            <UserCircle size={20} color={colors.gold} strokeWidth={1.5} />
+          </View>
+          <Text style={styles.headerTitle}>الزبائن</Text>
         </View>
-        <Text style={styles.headerTitle}>الزبائن</Text>
       </View>
 
       {/* Search */}
@@ -149,11 +188,15 @@ export default function AdminCustomers() {
           filtered.map((customer) => (
             <View key={customer.id} style={styles.customerCard}>
               {/* Avatar */}
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>
-                  {customer.full_name?.charAt(0) ?? '؟'}
-                </Text>
-              </View>
+              {customer.avatar_url ? (
+                <Image source={{ uri: customer.avatar_url }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {customer.full_name?.charAt(0) ?? '؟'}
+                  </Text>
+                </View>
+              )}
 
               <View style={{ flex: 1 }}>
                 <Text style={styles.customerName}>{customer.full_name ?? '—'}</Text>
@@ -173,18 +216,29 @@ export default function AdminCustomers() {
                 </View>
               </View>
 
-              {/* WhatsApp Button */}
-              {customer.whatsapp_number && (
+              {/* Action Buttons */}
+              <View style={styles.actions}>
+                {customer.whatsapp_number && (
+                  <TouchableOpacity
+                    style={styles.waBtn}
+                    onPress={() => openWhatsApp(
+                      customer.whatsapp_number,
+                      `مرحباً ${customer.full_name}، من صالون أبو عادل 💈`,
+                    )}
+                  >
+                    <MessageCircle size={18} color="#25D366" strokeWidth={1.5} />
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
-                  style={styles.waBtn}
-                  onPress={() => openWhatsApp(
-                    customer.whatsapp_number,
-                    `مرحباً ${customer.full_name}، من صالون أبو عادل 💈`,
-                  )}
+                  style={styles.deleteBtn}
+                  onPress={() => confirmDelete(customer)}
+                  disabled={deletingId === customer.id}
                 >
-                  <MessageCircle size={18} color="#25D366" strokeWidth={1.5} />
+                  {deletingId === customer.id
+                    ? <ActivityIndicator size="small" color="#E05252" />
+                    : <Trash2 size={16} color="#E05252" strokeWidth={1.5} />}
                 </TouchableOpacity>
-              )}
+              </View>
             </View>
           ))
         )}
@@ -197,9 +251,15 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10,
-    paddingHorizontal: 20, paddingTop: 60, paddingBottom: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 16,
     borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
+    justifyContent: 'center', alignItems: 'center',
   },
   headerIconWrap: {
     width: 36, height: 36, borderRadius: 18,
@@ -235,6 +295,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
     justifyContent: 'center', alignItems: 'center',
   },
+  avatarImage: {
+    width: 46, height: 46, borderRadius: 23,
+    borderWidth: 1, borderColor: colors.goldLight,
+  },
   avatarText: { color: colors.gold, fontSize: 18, fontWeight: '700' },
   customerName: { color: colors.white, fontSize: 14, fontWeight: '700', textAlign: 'right' },
   customerPhone: { color: colors.muted, fontSize: 12, textAlign: 'right', marginTop: 2 },
@@ -246,9 +310,15 @@ const styles = StyleSheet.create({
     paddingVertical: 3, paddingHorizontal: 7,
   },
   statChipText: { color: colors.muted, fontSize: 10 },
+  actions: { alignItems: 'center', gap: 8 },
   waBtn: {
     width: 42, height: 42, borderRadius: 21,
     backgroundColor: '#25D36615', borderWidth: 1, borderColor: '#25D36633',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  deleteBtn: {
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: '#E0525215', borderWidth: 1, borderColor: '#E0525233',
     justifyContent: 'center', alignItems: 'center',
   },
 });

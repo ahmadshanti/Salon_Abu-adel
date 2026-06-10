@@ -11,8 +11,11 @@ import {
   TextInput,
   Switch,
   RefreshControl,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { Scissors, Edit2, Plus, X, Clock } from 'lucide-react-native';
+import { Scissors, Edit2, Plus, X, Clock, ArrowLeft } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 
@@ -25,6 +28,7 @@ interface Service {
 }
 
 export default function AdminServices() {
+  const router = useRouter();
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -100,8 +104,8 @@ export default function AdminServices() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
-          <Plus size={18} color={colors.background} strokeWidth={2.5} />
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerTitleRow}>
           <View style={styles.headerIconWrap}>
@@ -109,6 +113,9 @@ export default function AdminServices() {
           </View>
           <Text style={styles.headerTitle}>الخدمات</Text>
         </View>
+        <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
+          <Plus size={18} color={colors.background} strokeWidth={2.5} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -149,43 +156,51 @@ export default function AdminServices() {
       </ScrollView>
 
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity style={styles.modalClose} onPress={() => setModalVisible(false)}>
-                <X size={20} color={colors.muted} strokeWidth={1.5} />
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalOverlay}>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalSheet}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.modalHandle} />
+              <View style={styles.modalHeader}>
+                <TouchableOpacity style={styles.modalClose} onPress={() => setModalVisible(false)}>
+                  <X size={20} color={colors.muted} strokeWidth={1.5} />
+                </TouchableOpacity>
+                <Text style={styles.modalTitle}>{editTarget ? 'تعديل الخدمة' : 'إضافة خدمة'}</Text>
+              </View>
+
+              <Text style={styles.inputLabel}>اسم الخدمة</Text>
+              <TextInput style={styles.input} value={name} onChangeText={setName}
+                placeholder="مثال: حلاقة كاملة" placeholderTextColor={colors.muted} textAlign="right" />
+
+              <Text style={styles.inputLabel}>السعر (₪)</Text>
+              <TextInput style={styles.input} value={price} onChangeText={setPrice}
+                keyboardType="number-pad" placeholder="25" placeholderTextColor={colors.muted} textAlign="right" />
+
+              <Text style={styles.inputLabel}>المدة (دقيقة)</Text>
+              <TextInput style={styles.input} value={duration} onChangeText={setDuration}
+                keyboardType="number-pad" placeholder="30" placeholderTextColor={colors.muted} textAlign="right" />
+
+              <View style={styles.switchRow}>
+                <Switch
+                  value={isActive} onValueChange={setIsActive}
+                  trackColor={{ false: colors.border, true: colors.goldTransparent }}
+                  thumbColor={isActive ? colors.gold : colors.muted}
+                />
+                <Text style={styles.switchLabel}>نشط</Text>
+              </View>
+
+              <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving}>
+                {saving ? <ActivityIndicator color={colors.background} /> : (
+                  <Text style={styles.saveBtnText}>{editTarget ? 'حفظ التعديلات' : 'إضافة'}</Text>
+                )}
               </TouchableOpacity>
-              <Text style={styles.modalTitle}>{editTarget ? 'تعديل الخدمة' : 'إضافة خدمة'}</Text>
-            </View>
-
-            <Text style={styles.inputLabel}>اسم الخدمة</Text>
-            <TextInput style={styles.input} value={name} onChangeText={setName}
-              placeholder="مثال: حلاقة كاملة" placeholderTextColor={colors.muted} textAlign="right" />
-
-            <Text style={styles.inputLabel}>السعر (₪)</Text>
-            <TextInput style={styles.input} value={price} onChangeText={setPrice}
-              keyboardType="number-pad" placeholder="25" placeholderTextColor={colors.muted} textAlign="right" />
-
-            <Text style={styles.inputLabel}>المدة (دقيقة)</Text>
-            <TextInput style={styles.input} value={duration} onChangeText={setDuration}
-              keyboardType="number-pad" placeholder="30" placeholderTextColor={colors.muted} textAlign="right" />
-
-            <View style={styles.switchRow}>
-              <Switch
-                value={isActive} onValueChange={setIsActive}
-                trackColor={{ false: colors.border, true: colors.goldTransparent }}
-                thumbColor={isActive ? colors.gold : colors.muted}
-              />
-              <Text style={styles.switchLabel}>نشط</Text>
-            </View>
-
-            <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving}>
-              {saving ? <ActivityIndicator color={colors.background} /> : (
-                <Text style={styles.saveBtnText}>{editTarget ? 'حفظ التعديلات' : 'إضافة'}</Text>
-              )}
-            </TouchableOpacity>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -196,8 +211,13 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 60, paddingBottom: 16,
+    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 16,
     borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
+    justifyContent: 'center', alignItems: 'center',
   },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerIconWrap: {
@@ -232,9 +252,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.goldFaint, justifyContent: 'center', alignItems: 'center',
   },
   modalOverlay: { flex: 1, backgroundColor: '#000000AA', justifyContent: 'flex-end' },
-  modalSheet: {
-    backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 24, gap: 12, borderTopWidth: 1, borderColor: colors.border,
+  modalScroll: {
+    maxHeight: '90%',
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderTopWidth: 1, borderColor: colors.border,
+  },
+  modalSheet: { padding: 24, gap: 12, paddingBottom: 40 },
+  modalHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: colors.border, alignSelf: 'center', marginBottom: 8,
   },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   modalClose: {

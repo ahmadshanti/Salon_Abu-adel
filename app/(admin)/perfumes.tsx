@@ -12,13 +12,18 @@ import {
   Switch,
   RefreshControl,
   Image,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Sparkles, Edit2, Plus, X, Check, ShoppingBag, Camera, TrendingDown, MessageCircle } from 'lucide-react-native';
+import { Sparkles, Edit2, Plus, X, Check, ShoppingBag, Camera, TrendingDown, MessageCircle, TrendingUp, Package, ArrowLeft } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import { Linking } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
+import { formatDate } from '../../lib/utils/time';
 import { sendPushNotification } from '../../lib/utils/notifications';
+import { uploadImage } from '../../lib/utils/uploadImage';
 
 function openWhatsApp(phone: string, message = '') {
   const cleaned = phone.replace(/[^0-9]/g, '');
@@ -41,14 +46,15 @@ interface PerfumeOrder {
   quantity: number;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   created_at: string;
-  perfumes: { name: string; price_ils: number } | null;
+  perfumes: { name: string; price_ils: number; cost_price_ils: number | null } | null;
   users: { full_name: string; whatsapp_number: string; expo_push_token: string | null } | null;
 }
 
-type Tab = 'perfumes' | 'orders';
+type Tab = 'perfumes' | 'orders' | 'sales';
 
 export default function AdminPerfumes() {
-  const [tab, setTab] = useState<Tab>('orders');
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>('sales');
   const [perfumes, setPerfumes] = useState<Perfume[]>([]);
   const [orders, setOrders] = useState<PerfumeOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,9 +80,9 @@ export default function AdminPerfumes() {
       supabase.from('perfumes').select('*').order('name'),
       supabase
         .from('perfume_orders')
-        .select('id, quantity, status, created_at, perfumes(name, price_ils), users(full_name, whatsapp_number, expo_push_token)')
+        .select('id, quantity, status, created_at, perfumes(name, price_ils, cost_price_ils), users(full_name, whatsapp_number, expo_push_token)')
         .order('created_at', { ascending: false })
-        .limit(50),
+        .limit(100),
     ]);
     setPerfumes(perfumesRes.data ?? []);
     setOrders((ordersRes.data ?? []) as PerfumeOrder[]);
@@ -136,13 +142,13 @@ export default function AdminPerfumes() {
 
     const result = source === 'camera'
       ? await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: 'images' as any,
           quality: 0.8,
           allowsEditing: true,
           aspect: [1, 1],
         })
       : await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: 'images' as any,
           quality: 0.8,
           allowsEditing: true,
           aspect: [1, 1],
@@ -155,27 +161,13 @@ export default function AdminPerfumes() {
 
   async function uploadImageAndGetUrl(uri: string): Promise<string | null> {
     setUploadingImage(true);
-    try {
-      const filename = `perfume_${Date.now()}.jpg`;
-      const response = await fetch(uri);
-      const blob = await response.blob();
-
-      const { data, error } = await supabase.storage
-        .from('perfume-images')
-        .upload(filename, blob, { contentType: 'image/jpeg', upsert: true });
-
-      if (error || !data) return null;
-
-      const { data: urlData } = supabase.storage
-        .from('perfume-images')
-        .getPublicUrl(data.path);
-
-      return urlData.publicUrl;
-    } catch {
+    const { url, error } = await uploadImage(uri, 'perfume-images', 'perfume');
+    setUploadingImage(false);
+    if (error) {
+      Alert.alert('خطأ في رفع الصورة', error);
       return null;
-    } finally {
-      setUploadingImage(false);
     }
+    return url;
   }
 
   async function handleSave() {
@@ -286,36 +278,43 @@ export default function AdminPerfumes() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        {tab === 'perfumes' && (
-          <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
-            <Plus size={18} color={colors.background} strokeWidth={2.5} />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
+        </TouchableOpacity>
         <View style={styles.headerTitleRow}>
           <View style={styles.headerIconWrap}>
             <Sparkles size={20} color={colors.gold} strokeWidth={1.5} />
           </View>
           <Text style={styles.headerTitle}>العطور</Text>
         </View>
+        {tab === 'perfumes' ? (
+          <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
+            <Plus size={18} color={colors.background} strokeWidth={2.5} />
+          </TouchableOpacity>
+        ) : <View style={{ width: 38 }} />}
       </View>
 
       {/* Tab Switcher */}
       <View style={styles.tabRow}>
         <TouchableOpacity
+          style={[styles.tabBtn, tab === 'sales' && styles.tabBtnActive]}
+          onPress={() => setTab('sales')}
+        >
+          <Text style={[styles.tabBtnText, tab === 'sales' && styles.tabBtnTextActive]}>مبيعات</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           style={[styles.tabBtn, tab === 'orders' && styles.tabBtnActive]}
           onPress={() => setTab('orders')}
         >
           <Text style={[styles.tabBtnText, tab === 'orders' && styles.tabBtnTextActive]}>
-            الطلبات {pendingOrders.length > 0 ? `(${pendingOrders.length})` : ''}
+            طلبات{pendingOrders.length > 0 ? ` (${pendingOrders.length})` : ''}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tabBtn, tab === 'perfumes' && styles.tabBtnActive]}
           onPress={() => setTab('perfumes')}
         >
-          <Text style={[styles.tabBtnText, tab === 'perfumes' && styles.tabBtnTextActive]}>
-            العطور
-          </Text>
+          <Text style={[styles.tabBtnText, tab === 'perfumes' && styles.tabBtnTextActive]}>العطور</Text>
         </TouchableOpacity>
       </View>
 
@@ -324,7 +323,9 @@ export default function AdminPerfumes() {
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.gold} />}
       >
-        {tab === 'perfumes' ? (
+        {tab === 'sales' ? (
+          <SalesTab orders={orders} />
+        ) : tab === 'perfumes' ? (
           perfumes.map((p) => (
             <View key={p.id} style={[styles.perfumeCard, !p.is_active && styles.inactiveCard]}>
               {/* Thumbnail */}
@@ -404,6 +405,7 @@ export default function AdminPerfumes() {
 
       {/* Add/Edit Modal */}
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.modalOverlay}>
           <ScrollView
             style={styles.modalScrollContainer}
@@ -491,7 +493,128 @@ export default function AdminPerfumes() {
             </TouchableOpacity>
           </ScrollView>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
+    </View>
+  );
+}
+
+function SalesTab({ orders }: { orders: PerfumeOrder[] }) {
+  const sold = orders.filter((o) => o.status === 'approved');
+
+  const totalRevenue = sold.reduce(
+    (sum, o) => sum + (o.perfumes?.price_ils ?? 0) * o.quantity,
+    0,
+  );
+
+  const profitOrders = sold.filter((o) => o.perfumes?.cost_price_ils != null);
+  const totalProfit = profitOrders.reduce(
+    (sum, o) => sum + ((o.perfumes!.price_ils - (o.perfumes!.cost_price_ils ?? 0)) * o.quantity),
+    0,
+  );
+
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - 6);
+  weekStart.setHours(0, 0, 0, 0);
+
+  const weekRevenue = sold
+    .filter((o) => new Date(o.created_at) >= weekStart)
+    .reduce((sum, o) => sum + (o.perfumes?.price_ils ?? 0) * o.quantity, 0);
+
+  return (
+    <>
+      {/* Summary */}
+      <View style={styles.salesSummary}>
+        <View style={styles.salesSummaryRow}>
+          <View style={styles.salesMetric}>
+            <TrendingUp size={16} color={colors.gold} strokeWidth={1.5} />
+            <Text style={styles.salesMetricValue}>{totalRevenue} ₪</Text>
+            <Text style={styles.salesMetricLabel}>إجمالي المبيعات</Text>
+          </View>
+          <View style={styles.salesMetricDivider} />
+          <View style={styles.salesMetric}>
+            <TrendingUp size={16} color={colors.success} strokeWidth={1.5} />
+            <Text style={[styles.salesMetricValue, { color: colors.success }]}>
+              {profitOrders.length > 0 ? `${totalProfit} ₪` : '—'}
+            </Text>
+            <Text style={styles.salesMetricLabel}>صافي الربح</Text>
+          </View>
+          <View style={styles.salesMetricDivider} />
+          <View style={styles.salesMetric}>
+            <Package size={16} color={colors.muted} strokeWidth={1.5} />
+            <Text style={styles.salesMetricValue}>{sold.length}</Text>
+            <Text style={styles.salesMetricLabel}>طلب مكتمل</Text>
+          </View>
+        </View>
+        <View style={styles.salesWeekRow}>
+          <Text style={styles.salesWeekValue}>{weekRevenue} ₪</Text>
+          <Text style={styles.salesWeekLabel}>مبيعات آخر 7 أيام</Text>
+        </View>
+      </View>
+
+      {/* Sales List */}
+      {sold.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <ShoppingBag size={40} color={colors.muted} strokeWidth={1} />
+          <Text style={styles.emptyText}>لا توجد مبيعات بعد</Text>
+        </View>
+      ) : (
+        sold.map((order) => <SaleCard key={order.id} order={order} />)
+      )}
+    </>
+  );
+}
+
+function SaleCard({ order }: { order: PerfumeOrder }) {
+  const total = (order.perfumes?.price_ils ?? 0) * order.quantity;
+  const hasProfit = order.perfumes?.cost_price_ils != null;
+  const profit = hasProfit
+    ? (order.perfumes!.price_ils - order.perfumes!.cost_price_ils!) * order.quantity
+    : null;
+
+  return (
+    <View style={styles.saleCard}>
+      {/* Header: customer + date */}
+      <View style={styles.saleTop}>
+        <Text style={styles.saleDate}>{formatDate(new Date(order.created_at))}</Text>
+        <View style={styles.saleCustomerRow}>
+          <Text style={styles.saleCustomer}>{order.users?.full_name ?? '—'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.saleDivider} />
+
+      {/* Product info */}
+      <View style={styles.saleProductRow}>
+        <View style={styles.saleQtyBadge}>
+          <Text style={styles.saleQtyText}>× {order.quantity}</Text>
+        </View>
+        <Text style={styles.salePerfumeName}>{order.perfumes?.name ?? '—'}</Text>
+      </View>
+
+      {/* Financials */}
+      <View style={styles.saleFinancials}>
+        {profit !== null && (
+          <View style={styles.saleProfitBadge}>
+            <Text style={styles.saleProfitText}>ربح: {profit} ₪</Text>
+          </View>
+        )}
+        <Text style={styles.saleTotal}>{total} ₪</Text>
+      </View>
+
+      {order.users?.whatsapp_number && (
+        <TouchableOpacity
+          style={styles.whatsappBtn}
+          onPress={() => openWhatsApp(
+            order.users!.whatsapp_number,
+            `مرحباً ${order.users!.full_name}، شكراً لشرائك "${order.perfumes?.name ?? ''}" 🌹`,
+          )}
+        >
+          <Text style={styles.whatsappBtnText}>واتساب</Text>
+          <MessageCircle size={14} color="#25D366" strokeWidth={1.5} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -565,10 +688,15 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 60, paddingBottom: 16,
+    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 16,
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
+    justifyContent: 'center', alignItems: 'center',
+  },
   headerIconWrap: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: colors.goldFaint, justifyContent: 'center', alignItems: 'center',
@@ -748,4 +876,142 @@ const styles = StyleSheet.create({
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnLoading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   saveBtnText: { color: colors.background, fontSize: 16, fontWeight: '700' },
+
+  // Sales tab
+  salesSummary: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.goldLight,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  salesSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  salesMetric: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  salesMetricDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: colors.border,
+  },
+  salesMetricValue: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  salesMetricLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    textAlign: 'center',
+  },
+  salesWeekRow: {
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    padding: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  salesWeekLabel: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  salesWeekValue: {
+    color: colors.gold,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  // Sale card
+  saleCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.goldLight,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    gap: 10,
+  },
+  saleTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  saleCustomerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  saleCustomer: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  saleDate: {
+    color: colors.muted,
+    fontSize: 11,
+  },
+  saleDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  saleProductRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  salePerfumeName: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'right',
+  },
+  saleQtyBadge: {
+    backgroundColor: colors.goldFaint,
+    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: colors.goldLight,
+  },
+  saleQtyText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  saleFinancials: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  saleTotal: {
+    color: colors.gold,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  saleProfitBadge: {
+    backgroundColor: colors.success + '15',
+    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: colors.success + '33',
+  },
+  saleProfitText: {
+    color: colors.success,
+    fontSize: 12,
+    fontWeight: '600',
+  },
 });
