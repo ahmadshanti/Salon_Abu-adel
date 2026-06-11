@@ -119,6 +119,12 @@ export function formatDateTime(date: Date): string {
   });
 }
 
+/** Minutes since Hebron midnight for the wall-clock time of `date`. */
+export function getHebronMinutesOfDay(date: Date): number {
+  const c = getHebronClock(date);
+  return c.hour * 60 + c.minute;
+}
+
 /** Day-of-month number for the date card, in Hebron time. */
 export function formatDayNumber(date: Date): string {
   return new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: HEBRON_TZ }).format(date);
@@ -151,7 +157,7 @@ export function getDayOfWeek(date: Date): number {
   return date.getDay();
 }
 
-function parseTimeToMinutes(timeStr: string): number {
+export function parseTimeToMinutes(timeStr: string): number {
   const [h, m] = timeStr.split(':').map(Number);
   return h * 60 + m;
 }

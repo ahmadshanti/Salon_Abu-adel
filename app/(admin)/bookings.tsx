@@ -18,7 +18,14 @@ import { useRouter } from 'expo-router';
 import { Linking } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
-import { formatDate, formatTime } from '../../lib/utils/time';
+import {
+  formatDate,
+  formatTime,
+  getHebronDayBounds,
+  getHebronDateParts,
+  getHebronMinutesOfDay,
+  hebronWallTimeToDate,
+} from '../../lib/utils/time';
 import { sendPushNotification } from '../../lib/utils/notifications';
 import { navigateBack } from '../../lib/utils/navigation';
 
@@ -57,13 +64,14 @@ export default function AdminBookings() {
   useEffect(() => { load(); }, []);
 
   const load = useCallback(async () => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
+    // "Today onward" is measured against the salon's calendar day (Asia/Hebron),
+    // not the admin device's timezone.
+    const { start: todayStart } = getHebronDayBounds(new Date());
 
     const { data } = await supabase
       .from('bookings')
       .select('id, start_time, end_time, status, notes, user_id, services(name, price_ils, duration_minutes), users(full_name, whatsapp_number)')
-      .gte('start_time', now.toISOString())
+      .gte('start_time', todayStart.toISOString())
       .order('start_time', { ascending: true })
       .limit(50);
 
@@ -85,7 +93,11 @@ export default function AdminBookings() {
             .from('bookings')
             .update({ status: 'cancelled' })
             .eq('id', booking.id);
-          if (!error) {
+          if (error) {
+            Alert.alert('خطأ', 'تعذّر إلغاء الحجز، يرجى المحاولة مرة أخرى');
+            return;
+          }
+          {
             setBookings((prev) =>
               prev.map((b) => (b.id === booking.id ? { ...b, status: 'cancelled' } : b)),
             );
@@ -110,9 +122,10 @@ export default function AdminBookings() {
   }
 
   function openEdit(booking: Booking) {
-    const d = new Date(booking.start_time);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
+    // Show the booking's wall-clock time in salon time (Asia/Hebron).
+    const minutes = getHebronMinutesOfDay(new Date(booking.start_time));
+    const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
+    const mm = String(minutes % 60).padStart(2, '0');
     setEditTarget(booking);
     setEditTimeInput(`${hh}:${mm}`);
     setEditNotes(booking.notes ?? '');
@@ -128,8 +141,11 @@ export default function AdminBookings() {
       return;
     }
     setEditSaving(true);
-    const newStart = new Date(editTarget.start_time);
-    newStart.setHours(hours, mins, 0, 0);
+    // Build the new start from the booking's Hebron calendar day + the entered
+    // wall-clock time, so the saved instant matches salon time regardless of the
+    // admin device timezone.
+    const dayParts = getHebronDateParts(new Date(editTarget.start_time));
+    const newStart = hebronWallTimeToDate(dayParts, hours * 60 + mins);
     const duration = editTarget.services?.duration_minutes ?? 60;
     const newEnd = new Date(newStart.getTime() + duration * 60 * 1000);
 
@@ -143,16 +159,24 @@ export default function AdminBookings() {
       .eq('id', editTarget.id);
 
     setEditSaving(false);
-    if (!error) {
-      setBookings((prev) =>
-        prev.map((b) =>
-          b.id === editTarget.id
-            ? { ...b, start_time: newStart.toISOString(), end_time: newEnd.toISOString(), notes: editNotes.trim() || null }
-            : b,
-        ),
+    if (error) {
+      // 23P01: exclusion constraint — the new time overlaps another confirmed booking.
+      Alert.alert(
+        'خطأ',
+        error.code === '23P01'
+          ? 'هذا الوقت يتعارض مع حجز آخر، اختر وقتاً مختلفاً'
+          : 'تعذّر حفظ التعديل، يرجى المحاولة مرة أخرى',
       );
-      setEditTarget(null);
+      return;
     }
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.id === editTarget.id
+          ? { ...b, start_time: newStart.toISOString(), end_time: newEnd.toISOString(), notes: editNotes.trim() || null }
+          : b,
+      ),
+    );
+    setEditTarget(null);
   }
 
   const filtered = bookings.filter((b) => {

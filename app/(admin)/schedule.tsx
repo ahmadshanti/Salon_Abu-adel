@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { navigateBack } from '../../lib/utils/navigation';
+import { parseTimeToMinutes } from '../../lib/utils/time';
 
 interface WorkingHours {
   id: string;
@@ -81,7 +82,23 @@ export default function AdminSchedule() {
 
   async function updateTime(wh: WorkingHours, field: 'open_time' | 'close_time', value: string) {
     const trimmed = value.trim();
-    if (!/^\d{2}:\d{2}$/.test(trimmed)) return;
+    if (!/^\d{2}:\d{2}$/.test(trimmed)) {
+      Alert.alert('خطأ', 'صيغة الوقت غير صحيحة (مثال: 09:00)');
+      return;
+    }
+    const hh = Number(trimmed.slice(0, 2));
+    const mm = Number(trimmed.slice(3, 5));
+    if (hh > 23 || mm > 59) {
+      Alert.alert('خطأ', 'صيغة الوقت غير صحيحة (مثال: 09:00)');
+      return;
+    }
+    // Reject a closing time that is at or before the opening time.
+    const openMin = parseTimeToMinutes(field === 'open_time' ? trimmed : wh.open_time);
+    const closeMin = parseTimeToMinutes(field === 'close_time' ? trimmed : wh.close_time);
+    if (closeMin <= openMin) {
+      Alert.alert('خطأ', 'وقت الإغلاق يجب أن يكون بعد وقت الفتح');
+      return;
+    }
     setSaving(wh.id + field);
     await supabase.from('working_hours').update({ [field]: trimmed }).eq('id', wh.id);
     setWorkingHours((prev) => prev.map((w) => w.id === wh.id ? { ...w, [field]: trimmed } : w));

@@ -79,6 +79,14 @@ export default function AdminServices() {
       Alert.alert('خطأ', 'السعر والمدة يجب أن تكون أرقام صحيحة');
       return;
     }
+    if (priceNum < 0) {
+      Alert.alert('خطأ', 'السعر لا يمكن أن يكون سالباً');
+      return;
+    }
+    if (durationNum <= 0) {
+      Alert.alert('خطأ', 'المدة يجب أن تكون أكبر من صفر');
+      return;
+    }
     setSaving(true);
     const payload = { name: name.trim(), price_ils: priceNum, duration_minutes: durationNum, is_active: isActive };
 

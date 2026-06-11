@@ -25,7 +25,7 @@ import {
 } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
-import { formatTime } from '../../lib/utils/time';
+import { formatTime, getHebronDayBounds } from '../../lib/utils/time';
 import { navigateBack } from '../../lib/utils/navigation';
 
 interface Stats {
@@ -59,10 +59,8 @@ export default function AdminDashboard() {
   useEffect(() => { load(); }, []);
 
   const load = useCallback(async () => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    // "Today" is the salon's calendar day (Asia/Hebron), not the device timezone.
+    const { start: todayStart, end: todayEnd } = getHebronDayBounds(new Date());
 
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - 6);
@@ -78,7 +76,7 @@ export default function AdminDashboard() {
         .select('id', { count: 'exact', head: true })
         .eq('status', 'confirmed')
         .gte('start_time', todayStart.toISOString())
-        .lte('start_time', todayEnd.toISOString()),
+        .lt('start_time', todayEnd.toISOString()),
       supabase
         .from('perfume_orders')
         .select('id', { count: 'exact', head: true })
@@ -92,7 +90,7 @@ export default function AdminDashboard() {
         .select('id, start_time, services(name), users(full_name)')
         .eq('status', 'confirmed')
         .gte('start_time', todayStart.toISOString())
-        .lte('start_time', todayEnd.toISOString())
+        .lt('start_time', todayEnd.toISOString())
         .order('start_time', { ascending: true })
         .limit(10),
       supabase
