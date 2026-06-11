@@ -13,9 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { CalendarDays, Clock, User, MessageCircle, X, Edit2, Search, ArrowLeft } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
-import { Linking } from 'react-native';
+import { CalendarDays, Clock, User, MessageCircle, X, Edit2, Search } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import {
@@ -27,13 +25,9 @@ import {
   hebronWallTimeToDate,
 } from '../../lib/utils/time';
 import { sendPushNotification } from '../../lib/utils/notifications';
-import { navigateBack } from '../../lib/utils/navigation';
-
-function openWhatsApp(phone: string, message = '') {
-  const cleaned = phone.replace(/[^0-9]/g, '');
-  const url = `https://wa.me/${cleaned}?text=${encodeURIComponent(message)}`;
-  Linking.openURL(url);
-}
+import { openWhatsApp } from '../../lib/utils/whatsapp';
+import { AdminHeader } from '../../components/AdminHeader';
+import { LoadingScreen } from '../../components/LoadingScreen';
 
 interface Booking {
   id: string;
@@ -49,7 +43,6 @@ interface Booking {
 type StatusFilter = 'all' | 'confirmed' | 'cancelled';
 
 export default function AdminBookings() {
-  const router = useRouter();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,7 +68,7 @@ export default function AdminBookings() {
       .order('start_time', { ascending: true })
       .limit(50);
 
-    setBookings((data ?? []) as Booking[]);
+    setBookings((data ?? []) as unknown as Booking[]);
     setLoading(false);
     setRefreshing(false);
   }, []);
@@ -97,23 +90,21 @@ export default function AdminBookings() {
             Alert.alert('خطأ', 'تعذّر إلغاء الحجز، يرجى المحاولة مرة أخرى');
             return;
           }
-          {
-            setBookings((prev) =>
-              prev.map((b) => (b.id === booking.id ? { ...b, status: 'cancelled' } : b)),
-            );
-            if (booking.user_id) {
-              const { data: userData } = await supabase
-                .from('users')
-                .select('expo_push_token')
-                .eq('id', booking.user_id)
-                .single();
-              if (userData?.expo_push_token) {
-                sendPushNotification(
-                  userData.expo_push_token,
-                  'تم إلغاء حجزك',
-                  `تم إلغاء حجزك بتاريخ ${formatDate(new Date(booking.start_time))}`,
-                );
-              }
+          setBookings((prev) =>
+            prev.map((b) => (b.id === booking.id ? { ...b, status: 'cancelled' } : b)),
+          );
+          if (booking.user_id) {
+            const { data: userData } = await supabase
+              .from('users')
+              .select('expo_push_token')
+              .eq('id', booking.user_id)
+              .single();
+            if (userData?.expo_push_token) {
+              sendPushNotification(
+                userData.expo_push_token,
+                'تم إلغاء حجزك',
+                `تم إلغاء حجزك بتاريخ ${formatDate(new Date(booking.start_time))}`,
+              );
             }
           }
         },
@@ -185,29 +176,13 @@ export default function AdminBookings() {
     return matchName && matchStatus;
   });
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.gold} />
-      </View>
-    );
-  }
+  if (loading) return <LoadingScreen />;
 
   const grouped = groupByDate(filtered);
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
-          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleRow}>
-          <View style={styles.headerIconWrap}>
-            <CalendarDays size={20} color={colors.gold} strokeWidth={1.5} />
-          </View>
-          <Text style={styles.headerTitle}>الحجوزات</Text>
-        </View>
-      </View>
+      <AdminHeader icon={CalendarDays} title="الحجوزات" />
 
       {/* Search + Filter */}
       <View style={styles.filterContainer}>
@@ -424,32 +399,6 @@ function groupByDate(bookings: Booking[]): Record<string, Booking[]> {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  headerIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.goldFaint,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: { color: colors.white, fontSize: 22, fontWeight: '700' },
   filterContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,

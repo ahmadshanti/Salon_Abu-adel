@@ -10,20 +10,14 @@ import {
   Modal,
   TextInput,
   RefreshControl,
-  Platform,
 } from 'react-native';
-import { Users, Clock, Check, X, Calendar, MessageCircle, ArrowLeft } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
-import { Linking } from 'react-native';
+import { Users, Clock, Check, X, Calendar, MessageCircle } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { sendPushNotification } from '../../lib/utils/notifications';
-import { navigateBack } from '../../lib/utils/navigation';
-
-function openWhatsApp(phone: string, message = '') {
-  const cleaned = phone.replace(/[^0-9]/g, '');
-  Linking.openURL(`https://wa.me/${cleaned}?text=${encodeURIComponent(message)}`);
-}
+import { openWhatsApp } from '../../lib/utils/whatsapp';
+import { AdminHeader } from '../../components/AdminHeader';
+import { LoadingScreen } from '../../components/LoadingScreen';
 
 interface GroomRequest {
   id: string;
@@ -36,7 +30,6 @@ interface GroomRequest {
 }
 
 export default function AdminGroomRequests() {
-  const router = useRouter();
   const [requests, setRequests] = useState<GroomRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,7 +47,7 @@ export default function AdminGroomRequests() {
       .select('id, preferred_time_text, status, confirmed_time, notes, created_at, users(full_name, whatsapp_number, expo_push_token)')
       .order('created_at', { ascending: false })
       .limit(50);
-    setRequests((data ?? []) as GroomRequest[]);
+    setRequests((data ?? []) as unknown as GroomRequest[]);
     setLoading(false);
     setRefreshing(false);
   }, []);
@@ -138,26 +131,14 @@ export default function AdminGroomRequests() {
     ]);
   }
 
-  if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={colors.gold} /></View>;
-  }
+  if (loading) return <LoadingScreen />;
 
   const pending = requests.filter((r) => r.status === 'pending');
   const others = requests.filter((r) => r.status !== 'pending');
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
-          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleRow}>
-          <View style={styles.headerIconWrap}>
-            <Users size={20} color={colors.gold} strokeWidth={1.5} />
-          </View>
-          <Text style={styles.headerTitle}>طلبات العريس</Text>
-        </View>
-      </View>
+      <AdminHeader icon={Users} title="طلبات العريس" />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -346,23 +327,6 @@ function RequestCard({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  headerIconWrap: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.goldFaint, justifyContent: 'center', alignItems: 'center',
-  },
-  headerTitle: { color: colors.white, fontSize: 22, fontWeight: '700' },
   scroll: { padding: 16, paddingBottom: 40 },
   emptyCard: {
     backgroundColor: colors.card, borderRadius: 18, borderWidth: 1, borderColor: colors.border,
@@ -386,7 +350,6 @@ const styles = StyleSheet.create({
   requestRowLabel: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   requestLabel: { color: colors.muted, fontSize: 12 },
   requestPreferredTime: { color: colors.white, fontSize: 13, flex: 1, textAlign: 'left' },
-  requestWhatsapp: { color: colors.text.secondary, fontSize: 13 },
   confirmedTimeText: { color: colors.success, fontSize: 13, flex: 1, textAlign: 'left' },
   requestNotes: {
     color: colors.text.secondary, fontSize: 12, textAlign: 'right',

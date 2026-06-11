@@ -5,10 +5,8 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   RefreshControl,
   Alert,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -21,12 +19,13 @@ import {
   LayoutDashboard,
   LogOut,
   TrendingUp,
-  ArrowLeft,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { formatTime, getHebronDayBounds } from '../../lib/utils/time';
-import { navigateBack } from '../../lib/utils/navigation';
+import { AdminHeader } from '../../components/AdminHeader';
+import { LoadingScreen } from '../../components/LoadingScreen';
 
 interface Stats {
   todayBookings: number;
@@ -101,7 +100,7 @@ export default function AdminDashboard() {
     ]);
 
     type RevenueRow = { quantity: number; created_at: string; perfumes: { price_ils: number } | null };
-    const allRevenue = (revenueRes.data ?? []) as RevenueRow[];
+    const allRevenue = (revenueRes.data ?? []) as unknown as RevenueRow[];
     const weekRevenue = allRevenue
       .filter((o) => new Date(o.created_at) >= weekStart)
       .reduce((sum, o) => sum + (o.perfumes?.price_ils ?? 0) * o.quantity, 0);
@@ -115,7 +114,7 @@ export default function AdminDashboard() {
       weekRevenue,
       monthRevenue,
     });
-    setTodayBookings((todayBookingsRes.data ?? []) as TodayBooking[]);
+    setTodayBookings((todayBookingsRes.data ?? []) as unknown as TodayBooking[]);
     setLoading(false);
     setRefreshing(false);
   }, []);
@@ -125,13 +124,7 @@ export default function AdminDashboard() {
     load();
   }
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.gold} />
-      </View>
-    );
-  }
+  if (loading) return <LoadingScreen />;
 
   return (
     <View style={styles.container}>
@@ -140,35 +133,30 @@ export default function AdminDashboard() {
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.gold} />}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router)}>
-            <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleRow}>
-            <View style={styles.headerIconWrap}>
-              <LayoutDashboard size={20} color={colors.gold} strokeWidth={1.5} />
-            </View>
-            <Text style={styles.headerTitle}>لوحة التحكم</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.signOutBtn}
-            onPress={() => {
-              Alert.alert('تسجيل الخروج', 'هل أنت متأكد؟', [
-                { text: 'إلغاء', style: 'cancel' },
-                {
-                  text: 'خروج',
-                  style: 'destructive',
-                  onPress: async () => {
-                    await supabase.auth.signOut();
+        <AdminHeader
+          icon={LayoutDashboard}
+          title="لوحة التحكم"
+          fallbackToDashboard={false}
+          right={
+            <TouchableOpacity
+              style={styles.signOutBtn}
+              onPress={() => {
+                Alert.alert('تسجيل الخروج', 'هل أنت متأكد؟', [
+                  { text: 'إلغاء', style: 'cancel' },
+                  {
+                    text: 'خروج',
+                    style: 'destructive',
+                    onPress: async () => {
+                      await supabase.auth.signOut();
+                    },
                   },
-                },
-              ]);
-            }}
-          >
-            <LogOut size={18} color={colors.error} strokeWidth={1.5} />
-          </TouchableOpacity>
-        </View>
+                ]);
+              }}
+            >
+              <LogOut size={18} color={colors.error} strokeWidth={1.5} />
+            </TouchableOpacity>
+          }
+        />
 
         {/* Stats Row */}
         <View style={styles.statsRow}>
@@ -274,7 +262,7 @@ function StatCard({
   onPress,
   highlight = false,
 }: {
-  icon: React.ComponentType<{ size: number; color: string; strokeWidth: number }>;
+  icon: LucideIcon;
   value: number;
   label: string;
   onPress: () => void;
@@ -299,7 +287,7 @@ function ActionCard({
   label,
   onPress,
 }: {
-  icon: React.ComponentType<{ size: number; color: string; strokeWidth: number }>;
+  icon: LucideIcon;
   label: string;
   onPress: () => void;
 }) {
@@ -316,37 +304,7 @@ function ActionCard({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   scroll: { paddingBottom: 40 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  headerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  headerIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.goldFaint,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: { color: colors.white, fontSize: 22, fontWeight: '700' },
   signOutBtn: {
     width: 38,
     height: 38,

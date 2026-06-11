@@ -8,16 +8,15 @@ import {
   ActivityIndicator,
   RefreshControl,
   TextInput,
-  Linking,
   Image,
-  Platform,
   Alert,
 } from 'react-native';
-import { UserCircle, MessageCircle, Search, CalendarDays, ShoppingBag, Trash2, ArrowLeft } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { UserCircle, MessageCircle, Search, CalendarDays, ShoppingBag, Trash2 } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
-import { navigateBack } from '../../lib/utils/navigation';
+import { openWhatsApp } from '../../lib/utils/whatsapp';
+import { AdminHeader } from '../../components/AdminHeader';
+import { LoadingScreen } from '../../components/LoadingScreen';
 
 interface Customer {
   id: string;
@@ -29,13 +28,7 @@ interface Customer {
   order_count?: number;
 }
 
-function openWhatsApp(phone: string, message = '') {
-  const cleaned = phone.replace(/[^0-9]/g, '');
-  Linking.openURL(`https://wa.me/${cleaned}?text=${encodeURIComponent(message)}`);
-}
-
 export default function AdminCustomers() {
-  const router = useRouter();
   const [customers,  setCustomers]  = useState<Customer[]>([]);
   const [filtered,   setFiltered]   = useState<Customer[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -120,7 +113,7 @@ export default function AdminCustomers() {
 
   async function deleteCustomer(userId: string) {
     setDeletingId(userId);
-    const [b, o, g] = await Promise.all([
+    await Promise.all([
       supabase.from('bookings').delete().eq('user_id', userId),
       supabase.from('perfume_orders').delete().eq('user_id', userId),
       supabase.from('groom_requests').delete().eq('user_id', userId),
@@ -135,28 +128,17 @@ export default function AdminCustomers() {
   }
 
   function formatJoinDate(dateStr: string) {
-    return new Date(dateStr).toLocaleDateString('ar-SA', {
-      year: 'numeric', month: 'long', day: 'numeric',
+    // ar-PS keeps the Gregorian calendar, matching every other date in the app.
+    return new Date(dateStr).toLocaleDateString('ar-PS', {
+      year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Hebron',
     });
   }
 
-  if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={colors.gold} /></View>;
-  }
+  if (loading) return <LoadingScreen />;
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
-          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleRow}>
-          <View style={styles.headerIconWrap}>
-            <UserCircle size={20} color={colors.gold} strokeWidth={1.5} />
-          </View>
-          <Text style={styles.headerTitle}>الزبائن</Text>
-        </View>
-      </View>
+      <AdminHeader icon={UserCircle} title="الزبائن" />
 
       {/* Search */}
       <View style={styles.searchWrap}>
@@ -250,23 +232,6 @@ export default function AdminCustomers() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  headerIconWrap: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.goldFaint, justifyContent: 'center', alignItems: 'center',
-  },
-  headerTitle: { color: colors.white, fontSize: 22, fontWeight: '700' },
   searchWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     marginHorizontal: 16, marginTop: 14,

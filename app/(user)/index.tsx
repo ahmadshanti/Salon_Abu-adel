@@ -15,6 +15,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Scissors, Sparkles, CalendarDays, ChevronLeft, Clock, User } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { formatDate, formatTime } from '../../lib/utils/time';
+import type { Service as ServiceRow, Perfume as PerfumeRow, GalleryImage } from '../../lib/types';
 
 const { width } = Dimensions.get('window');
 
@@ -26,19 +27,17 @@ const GOLD_BG    = 'rgba(212,175,55,0.10)';
 const GOLD_BORD  = 'rgba(212,175,55,0.25)';
 const WHITE      = '#FFFFFF';
 const MUTED      = 'rgba(255,255,255,0.42)';
-const NAV_H      = Platform.OS === 'ios' ? 92 : 70;   // navbar height incl. safe area
-const HERO_H     = 300;                               // pure image height below navbar
+const HERO_H     = 300;   // pure image height below navbar
 
-interface Service    { id: string; name: string; price_ils: number; duration_minutes: number; }
-interface Booking    { id: string; start_time: string; services: { name: string } | null; status: string; }
-interface GalleryImg { id: string; image_url: string; display_order: number; }
-interface Perfume    { id: string; name: string; price_ils: number; image_url: string | null; }
+type Service = Pick<ServiceRow, 'id' | 'name' | 'price_ils' | 'duration_minutes'>;
+type Perfume = Pick<PerfumeRow, 'id' | 'name' | 'price_ils' | 'image_url'>;
+interface Booking { id: string; start_time: string; services: { name: string } | null; status: string; }
 
 export default function Home() {
   const router = useRouter();
   const [services,    setServices]    = useState<Service[]>([]);
   const [nextBooking, setNextBooking] = useState<Booking | null>(null);
-  const [gallery,     setGallery]     = useState<GalleryImg[]>([]);
+  const [gallery,     setGallery]     = useState<GalleryImage[]>([]);
   const [perfumes,    setPerfumes]    = useState<Perfume[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [refreshing,  setRefreshing]  = useState(false);
@@ -80,7 +79,7 @@ export default function Home() {
         .eq('is_active', true).limit(6),
     ]);
     setServices(svcRes.data ?? []);
-    setNextBooking(bkRes.data ?? null);
+    setNextBooking((bkRes.data ?? null) as unknown as Booking | null);
     setGallery(galRes.data ?? []);
     setPerfumes(perfRes.data ?? []);
     setLoading(false);
@@ -400,39 +399,6 @@ const s = StyleSheet.create({
   svcPrice: { color: GOLD, fontSize: 13, fontWeight: '800' },
   svcDur:   { color: MUTED, fontSize: 10 },
 
-  /* ── Perfume banner ── */
-  perfBanner: {
-    marginHorizontal: 20,
-    marginTop: 26,
-    backgroundColor: CARD,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    overflow: 'hidden',
-  },
-  perfDeco: {
-    position: 'absolute',
-    left: -20,
-    top: -20,
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: GOLD_BG,
-  },
-  perfIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: GOLD_BG,
-    borderWidth: 1,
-    borderColor: GOLD_BORD,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   /* ── Perfume cards ── */
   perfCard: {
     width: 136,

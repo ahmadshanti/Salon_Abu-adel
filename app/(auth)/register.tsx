@@ -2,20 +2,30 @@ import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   Alert, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
-  Animated, Image, Easing, Dimensions,
+  Animated, Image, Easing, Dimensions, type KeyboardTypeOptions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { User, Phone, Mail, Lock, ChevronLeft } from 'lucide-react-native';
+import { User, Phone, Mail, Lock, ChevronLeft, type LucideIcon } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
+import { authPalette } from '../../constants/theme';
 
 const { height: SCREEN_H } = Dimensions.get('window');
+const { GOLD, BG, BORDER, GOLD_BD, WHITE, MUTED } = authPalette;
 
-const GOLD    = '#D4AF37';
-const BG      = '#0B0B0F';
-const BORDER  = 'rgba(255,255,255,0.08)';
-const GOLD_BD = 'rgba(212,175,55,0.30)';
-const WHITE   = '#FFFFFF';
-const MUTED   = 'rgba(255,255,255,0.40)';
+interface RegisterField {
+  key: 'name' | 'email' | 'wa' | 'pass';
+  placeholder: string;
+  Icon: LucideIcon;
+  type: KeyboardTypeOptions;
+  secure: boolean;
+}
+
+const REGISTER_FIELDS: RegisterField[] = [
+  { key: 'name',  placeholder: 'الاسم الكامل',                      Icon: User,  type: 'default',       secure: false },
+  { key: 'email', placeholder: 'البريد الإلكتروني',                 Icon: Mail,  type: 'email-address', secure: false },
+  { key: 'wa',    placeholder: 'رقم الواتساب (مثال: 970591234567)', Icon: Phone, type: 'phone-pad',     secure: false },
+  { key: 'pass',  placeholder: 'كلمة المرور (6 أحرف على الأقل)',    Icon: Lock,  type: 'default',       secure: true  },
+];
 
 export default function Register() {
   const router = useRouter();
@@ -132,12 +142,7 @@ export default function Register() {
         <Animated.View style={[s.card, { opacity: formOpacity, transform: [{ translateY: formSlide }] }]}>
           <Text style={s.cardTitle}>بيانات التسجيل</Text>
 
-          {[
-            { key: 'name',  placeholder: 'الاسم الكامل',                    Icon: User,  type: 'default',   secure: false },
-            { key: 'email', placeholder: 'البريد الإلكتروني',               Icon: Mail,  type: 'email-address', secure: false },
-            { key: 'wa',    placeholder: 'رقم الواتساب (مثال: 970591234567)', Icon: Phone, type: 'phone-pad',  secure: false },
-            { key: 'pass',  placeholder: 'كلمة المرور (6 أحرف على الأقل)',   Icon: Lock,  type: 'default',   secure: true  },
-          ].map(({ key, placeholder, Icon, type, secure }) => (
+          {REGISTER_FIELDS.map(({ key, placeholder, Icon, type, secure }) => (
             <View key={key} style={[s.inputWrap, focused === key && s.inputFocused]}>
               <TextInput
                 style={s.input}
@@ -145,7 +150,7 @@ export default function Register() {
                 placeholderTextColor={MUTED}
                 value={key === 'name' ? fullName : key === 'email' ? email : key === 'wa' ? whatsapp : password}
                 onChangeText={key === 'name' ? setFullName : key === 'email' ? setEmail : key === 'wa' ? setWhatsapp : setPassword}
-                keyboardType={type as any}
+                keyboardType={type}
                 autoCapitalize={type === 'email-address' ? 'none' : 'words'}
                 secureTextEntry={secure}
                 textAlign="right"

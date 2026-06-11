@@ -16,19 +16,10 @@ import { Sparkles, ShoppingBag, Package, X, Plus, Minus, ArrowLeft } from 'lucid
 import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
+import type { Perfume } from '../../lib/types';
 
 const SCREEN_W = Dimensions.get('window').width;
 const CARD_W = (SCREEN_W - 16 * 2 - 12) / 2;
-
-interface Perfume {
-  id: string;
-  name: string;
-  description: string;
-  price_ils: number;
-  stock_quantity: number;
-  image_url: string | null;
-  is_active: boolean;
-}
 
 export default function Perfumes() {
   const router = useRouter();

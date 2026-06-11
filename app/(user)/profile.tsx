@@ -63,7 +63,7 @@ export default function Profile() {
     ]);
 
     setProfile(profileRes.data);
-    setBookings((bookingsRes.data ?? []) as Booking[]);
+    setBookings((bookingsRes.data ?? []) as unknown as Booking[]);
     setLoading(false);
   }
 
@@ -89,7 +89,7 @@ export default function Profile() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: 'images' as any,
+      mediaTypes: ['images'],
       quality: 0.7,
       allowsEditing: true,
       aspect: [1, 1],

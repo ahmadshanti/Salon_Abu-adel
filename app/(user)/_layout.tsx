@@ -1,7 +1,7 @@
 import { Tabs, Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Image } from 'react-native';
-import { Home, CalendarDays, Sparkles, User } from 'lucide-react-native';
+import { Home, CalendarDays, Sparkles, User, type LucideIcon } from 'lucide-react-native';
 import { colors } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../lib/hooks/useAuth';
@@ -11,7 +11,7 @@ function TabIcon({
   label,
   focused,
 }: {
-  Icon: React.ComponentType<{ size: number; color: string; strokeWidth: number }>;
+  Icon: LucideIcon;
   label: string;
   focused: boolean;
 }) {

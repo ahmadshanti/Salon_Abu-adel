@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from 'react';
 import { Image, Text, StyleSheet, Animated, View } from 'react-native';
 import { Slot, router, useSegments } from 'expo-router';
 import { supabase } from '../lib/supabase';
-import Logo from '../assets';
 import { registerForPushNotifications, savePushToken } from '../lib/utils/notifications';
 import type { Session } from '@supabase/supabase-js';
 
@@ -125,7 +124,7 @@ export default function RootLayout() {
         <Animated.View style={[styles.splash, { opacity: splashOpacity }]}>
           <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }], alignItems: 'center', gap: 8 }}>
             <Text style={styles.salonName}>صالون أبو عادل</Text>
-            <Image source={Logo} style={styles.logo} resizeMode="contain" />
+            <Image source={require('../assets/images/logo.png')} style={styles.logo} resizeMode="contain" />
           </Animated.View>
           <Animated.View style={[styles.goldLine, { opacity: fadeAnim }]} />
         </Animated.View>
