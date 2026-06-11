@@ -277,7 +277,7 @@ const s = StyleSheet.create({
     paddingVertical: 17, alignItems: 'center',
   },
   btnOff: { opacity: 0.55 },
-  btnTxt: { color: BG, fontSize: 17, fontWeight: '800', letterSpacing: 0.3 },
+  btnTxt: { color: BG, fontSize: 17, fontWeight: '800' },
 
   /* ── Link ── */
   linkRow: {

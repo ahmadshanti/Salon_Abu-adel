@@ -72,6 +72,40 @@ export async function sendPushNotification(
   }
 }
 
+/** Push a notification to every user device with a saved token.
+    Sends in batches of 100 (the Expo push API per-request limit).
+    Returns the number of devices targeted. */
+export async function broadcastToAllUsers(title: string, body: string): Promise<number> {
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('expo_push_token')
+    .not('expo_push_token', 'is', null);
+  if (error) throw error;
+
+  const tokens = (users ?? [])
+    .map((u) => u.expo_push_token)
+    .filter((t): t is string => !!t);
+
+  for (let i = 0; i < tokens.length; i += 100) {
+    const chunk = tokens.slice(i, i + 100);
+    try {
+      await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Accept-encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ to: chunk, sound: 'default', title, body }),
+      });
+    } catch {
+      // Notification delivery is best-effort
+    }
+  }
+
+  return tokens.length;
+}
+
 /** Push a best-effort notification to every admin device. */
 export async function notifyAdmins(title: string, body: string): Promise<void> {
   try {

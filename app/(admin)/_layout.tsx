@@ -117,6 +117,8 @@ export default function AdminLayout() {
           ),
         }}
       />
+      {/* Reached from the dashboard quick actions; the tab bar is full. */}
+      <Tabs.Screen name="broadcast" options={{ href: null }} />
     </Tabs>
   );
 }

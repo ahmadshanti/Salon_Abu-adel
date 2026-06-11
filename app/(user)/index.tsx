@@ -277,7 +277,7 @@ const s = StyleSheet.create({
     borderBottomColor: 'rgba(212,175,55,0.18)',
   },
   navTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  navTitle: { color: WHITE, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
+  navTitle: { color: WHITE, fontSize: 16, fontWeight: '700' },
   navDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GOLD },
   profileBtn: {
     width: 36,

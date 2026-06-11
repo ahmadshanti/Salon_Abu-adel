@@ -19,6 +19,7 @@ import {
   LayoutDashboard,
   LogOut,
   TrendingUp,
+  Megaphone,
   type LucideIcon,
 } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
@@ -94,18 +95,19 @@ export default function AdminDashboard() {
         .limit(10),
       supabase
         .from('perfume_orders')
-        .select('quantity, created_at, perfumes(price_ils)')
+        .select('quantity, created_at, final_price_ils, perfumes(price_ils)')
         .eq('status', 'approved')
         .gte('created_at', monthStart.toISOString()),
     ]);
 
-    type RevenueRow = { quantity: number; created_at: string; perfumes: { price_ils: number } | null };
+    type RevenueRow = { quantity: number; created_at: string; final_price_ils: number | null; perfumes: { price_ils: number } | null };
     const allRevenue = (revenueRes.data ?? []) as unknown as RevenueRow[];
+    // Approved orders carry the price confirmed at approval; old rows fall back to the perfume's current price.
+    const rowTotal = (o: RevenueRow) => (o.final_price_ils ?? o.perfumes?.price_ils ?? 0) * o.quantity;
     const weekRevenue = allRevenue
       .filter((o) => new Date(o.created_at) >= weekStart)
-      .reduce((sum, o) => sum + (o.perfumes?.price_ils ?? 0) * o.quantity, 0);
-    const monthRevenue = allRevenue
-      .reduce((sum, o) => sum + (o.perfumes?.price_ils ?? 0) * o.quantity, 0);
+      .reduce((sum, o) => sum + rowTotal(o), 0);
+    const monthRevenue = allRevenue.reduce((sum, o) => sum + rowTotal(o), 0);
 
     setStats({
       todayBookings: bookingsRes.count ?? 0,
@@ -227,6 +229,11 @@ export default function AdminDashboard() {
             icon={Clock}
             label="الجدول"
             onPress={() => router.push('/(admin)/schedule')}
+          />
+          <ActionCard
+            icon={Megaphone}
+            label="إشعار عام"
+            onPress={() => router.push('/(admin)/broadcast')}
           />
         </View>
 

@@ -38,9 +38,15 @@ interface PerfumeOrder {
   quantity: number;
   status: OrderStatus;
   created_at: string;
+  /** Per-unit price the customer actually paid, locked in at approval. */
+  final_price_ils: number | null;
   perfumes: { name: string; price_ils: number; cost_price_ils: number | null } | null;
   users: { full_name: string; whatsapp_number: string; expo_push_token: string | null } | null;
 }
+
+/** Approved orders carry their own price snapshot; older rows fall back to the perfume's current price. */
+const orderUnitPrice = (o: PerfumeOrder) => o.final_price_ils ?? o.perfumes?.price_ils ?? 0;
+const orderUnitCost = (o: PerfumeOrder) => o.perfumes?.cost_price_ils ?? null;
 
 type Tab = 'perfumes' | 'orders' | 'sales';
 
@@ -64,6 +70,11 @@ export default function AdminPerfumes() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Approve flow: admin must confirm the real final price before approving
+  const [approveTarget, setApproveTarget] = useState<PerfumeOrder | null>(null);
+  const [finalPrice, setFinalPrice] = useState('');
+  const [approving, setApproving] = useState(false);
+
   useEffect(() => { load(); }, []);
 
   const load = useCallback(async () => {
@@ -71,7 +82,7 @@ export default function AdminPerfumes() {
       supabase.from('perfumes').select('*').order('name'),
       supabase
         .from('perfume_orders')
-        .select('id, perfume_id, quantity, status, created_at, perfumes(name, price_ils, cost_price_ils), users(full_name, whatsapp_number, expo_push_token)')
+        .select('id, perfume_id, quantity, status, created_at, final_price_ils, perfumes(name, price_ils, cost_price_ils), users(full_name, whatsapp_number, expo_push_token)')
         .order('created_at', { ascending: false })
         .limit(100),
     ]);
@@ -243,30 +254,79 @@ export default function AdminPerfumes() {
     ]);
   }
 
-  async function handleOrderAction(order: PerfumeOrder, action: 'approved' | 'rejected') {
+  async function rejectOrder(order: PerfumeOrder) {
     const { error } = await supabase
       .from('perfume_orders')
-      .update({ status: action })
+      .update({ status: 'rejected' })
       .eq('id', order.id);
 
     if (error) { Alert.alert('خطأ', 'حدث خطأ أثناء تحديث الطلب'); return; }
 
-    if (action === 'approved') {
-      const perfume = perfumes.find((p) => p.id === order.perfume_id);
-      if (perfume) {
-        const newStock = Math.max(0, perfume.stock_quantity - order.quantity);
-        await supabase.from('perfumes').update({ stock_quantity: newStock }).eq('id', perfume.id);
-        setPerfumes((prev) => prev.map((p) => p.id === perfume.id ? { ...p, stock_quantity: newStock } : p));
-      }
+    const token = order.users?.expo_push_token;
+    if (token) {
+      sendPushNotification(token, 'طلب العطر', `تم رفض طلبك: ${order.perfumes?.name ?? ''}`);
+    }
+
+    setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: 'rejected' } : o));
+  }
+
+  /** Opens the price-confirmation sheet; approval only happens after the admin confirms the real price. */
+  function openApprove(order: PerfumeOrder) {
+    const perfume = perfumes.find((p) => p.id === order.perfume_id);
+    setFinalPrice(String(perfume?.price_ils ?? order.perfumes?.price_ils ?? ''));
+    setApproveTarget(order);
+  }
+
+  async function confirmApprove() {
+    if (!approveTarget) return;
+
+    const priceNum = parseInt(finalPrice, 10);
+    if (!finalPrice.trim() || isNaN(priceNum) || priceNum <= 0) {
+      Alert.alert('خطأ', 'أدخل السعر النهائي للقطعة');
+      return;
+    }
+    const cost = orderUnitCost(approveTarget);
+    if (cost != null && cost >= priceNum) {
+      Alert.alert('خطأ', 'يجب ان يكون السعر اكبر من التكلفة');
+      return;
+    }
+
+    setApproving(true);
+    const order = approveTarget;
+    const { error } = await supabase
+      .from('perfume_orders')
+      .update({ status: 'approved', final_price_ils: priceNum })
+      .eq('id', order.id);
+
+    if (error) {
+      setApproving(false);
+      Alert.alert('خطأ', 'حدث خطأ أثناء تحديث الطلب');
+      return;
+    }
+
+    const perfume = perfumes.find((p) => p.id === order.perfume_id);
+    if (perfume) {
+      const newStock = Math.max(0, perfume.stock_quantity - order.quantity);
+      await supabase.from('perfumes').update({ stock_quantity: newStock }).eq('id', perfume.id);
+      setPerfumes((prev) => prev.map((p) => p.id === perfume.id ? { ...p, stock_quantity: newStock } : p));
     }
 
     const token = order.users?.expo_push_token;
     if (token) {
-      const msg = action === 'approved' ? 'تمت الموافقة على طلبك' : 'تم رفض طلبك';
-      sendPushNotification(token, 'طلب العطر', `${msg}: ${order.perfumes?.name ?? ''}`);
+      sendPushNotification(
+        token,
+        'طلب العطر',
+        `تمت الموافقة على طلبك: ${order.perfumes?.name ?? ''} — المبلغ ${priceNum * order.quantity} ₪`,
+      );
     }
 
-    setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: action } : o));
+    setOrders((prev) => prev.map((o) =>
+      o.id === order.id
+        ? { ...o, status: 'approved' as OrderStatus, final_price_ils: priceNum }
+        : o,
+    ));
+    setApproving(false);
+    setApproveTarget(null);
   }
 
   if (loading) return <LoadingScreen />;
@@ -375,8 +435,8 @@ export default function AdminPerfumes() {
                       <OrderCard
                         key={order.id}
                         order={order}
-                        onApprove={() => handleOrderAction(order, 'approved')}
-                        onReject={() => handleOrderAction(order, 'rejected')}
+                        onApprove={() => openApprove(order)}
+                        onReject={() => rejectOrder(order)}
                       />
                     ))}
                   </>
@@ -487,6 +547,73 @@ export default function AdminPerfumes() {
         </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Approve: confirm final price before approving */}
+      <Modal
+        visible={approveTarget !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !approving && setApproveTarget(null)}
+      >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={styles.modalOverlay}>
+          <ScrollView
+            style={styles.modalScrollContainer}
+            contentContainerStyle={styles.modalSheet}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.modalHeader}>
+              <TouchableOpacity
+                style={styles.modalClose}
+                onPress={() => setApproveTarget(null)}
+                disabled={approving}
+              >
+                <X size={20} color={colors.muted} strokeWidth={1.5} />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>تأكيد السعر النهائي</Text>
+            </View>
+
+            <View style={styles.approveSummary}>
+              <Text style={styles.approvePerfumeName}>{approveTarget?.perfumes?.name ?? '—'}</Text>
+              <Text style={styles.approveMeta}>
+                {approveTarget?.users?.full_name ?? '—'} • الكمية: {approveTarget?.quantity ?? 0}
+              </Text>
+            </View>
+
+            <Text style={styles.approveHint}>
+              تأكد من السعر الحقيقي للقطعة قبل الموافقة — السعر المسجل هنا هو اللي بنحسب عليه المبيعات
+            </Text>
+
+            <Text style={styles.inputLabel}>السعر النهائي للقطعة (₪)</Text>
+            <TextInput style={styles.input} value={finalPrice} onChangeText={setFinalPrice}
+              keyboardType="number-pad" placeholder="50" placeholderTextColor={colors.muted} textAlign="right" />
+
+            <View style={styles.approveTotalRow}>
+              <Text style={styles.approveTotalValue}>
+                {(parseInt(finalPrice, 10) || 0) * (approveTarget?.quantity ?? 0)} ₪
+              </Text>
+              <Text style={styles.approveTotalLabel}>الإجمالي</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.saveBtn, approving && styles.saveBtnDisabled]}
+              onPress={confirmApprove}
+              disabled={approving}
+            >
+              {approving ? (
+                <View style={styles.saveBtnLoading}>
+                  <ActivityIndicator color={colors.background} />
+                  <Text style={styles.saveBtnText}>جاري الموافقة...</Text>
+                </View>
+              ) : (
+                <Text style={styles.saveBtnText}>تأكيد والموافقة</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -495,13 +622,13 @@ function SalesTab({ orders }: { orders: PerfumeOrder[] }) {
   const sold = orders.filter((o) => o.status === 'approved');
 
   const totalRevenue = sold.reduce(
-    (sum, o) => sum + (o.perfumes?.price_ils ?? 0) * o.quantity,
+    (sum, o) => sum + orderUnitPrice(o) * o.quantity,
     0,
   );
 
-  const profitOrders = sold.filter((o) => o.perfumes?.cost_price_ils != null);
+  const profitOrders = sold.filter((o) => orderUnitCost(o) != null);
   const totalProfit = profitOrders.reduce(
-    (sum, o) => sum + ((o.perfumes!.price_ils - (o.perfumes!.cost_price_ils ?? 0)) * o.quantity),
+    (sum, o) => sum + (orderUnitPrice(o) - (orderUnitCost(o) ?? 0)) * o.quantity,
     0,
   );
 
@@ -512,7 +639,7 @@ function SalesTab({ orders }: { orders: PerfumeOrder[] }) {
 
   const weekRevenue = sold
     .filter((o) => new Date(o.created_at) >= weekStart)
-    .reduce((sum, o) => sum + (o.perfumes?.price_ils ?? 0) * o.quantity, 0);
+    .reduce((sum, o) => sum + orderUnitPrice(o) * o.quantity, 0);
 
   return (
     <>
@@ -559,10 +686,10 @@ function SalesTab({ orders }: { orders: PerfumeOrder[] }) {
 }
 
 function SaleCard({ order }: { order: PerfumeOrder }) {
-  const total = (order.perfumes?.price_ils ?? 0) * order.quantity;
-  const hasProfit = order.perfumes?.cost_price_ils != null;
-  const profit = hasProfit
-    ? (order.perfumes!.price_ils - order.perfumes!.cost_price_ils!) * order.quantity
+  const total = orderUnitPrice(order) * order.quantity;
+  const unitCost = orderUnitCost(order);
+  const profit = unitCost != null
+    ? (orderUnitPrice(order) - unitCost) * order.quantity
     : null;
 
   return (
@@ -644,7 +771,7 @@ function OrderCard({
         </View>
       </View>
       <View style={styles.orderMeta}>
-        <Text style={styles.orderTotal}>{(order.perfumes?.price_ils ?? 0) * order.quantity} ₪</Text>
+        <Text style={styles.orderTotal}>{orderUnitPrice(order) * order.quantity} ₪</Text>
         <Text style={styles.orderQty}>الكمية: {order.quantity}</Text>
       </View>
       {order.users?.whatsapp_number && (
@@ -840,6 +967,32 @@ const styles = StyleSheet.create({
   },
   adminBadgeText: { color: colors.background, fontSize: 10, fontWeight: '700' },
   costInput: { borderColor: colors.goldLight },
+
+  // Approve confirmation modal
+  approveSummary: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.goldLight,
+    borderRadius: 14,
+    padding: 14,
+    gap: 4,
+    alignItems: 'flex-end',
+  },
+  approvePerfumeName: { color: colors.white, fontSize: 15, fontWeight: '700', textAlign: 'right' },
+  approveMeta: { color: colors.muted, fontSize: 12, textAlign: 'right' },
+  approveHint: { color: colors.gold, fontSize: 12, textAlign: 'right', lineHeight: 18 },
+  approveTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    padding: 12,
+  },
+  approveTotalLabel: { color: colors.muted, fontSize: 13 },
+  approveTotalValue: { color: colors.gold, fontSize: 16, fontWeight: '700' },
 
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },
   switchLabel: { color: colors.white, fontSize: 14 },
