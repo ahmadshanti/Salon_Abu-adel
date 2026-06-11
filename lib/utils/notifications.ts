@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase';
 
 Notifications.setNotificationHandler({
@@ -71,22 +72,58 @@ export async function sendPushNotification(
   }
 }
 
-export async function scheduleReminderNotification(bookingTime: Date): Promise<string> {
-  const reminderTime = new Date(bookingTime.getTime() - 30 * 60 * 1000);
-  const secondsUntilReminder = Math.max(1, (reminderTime.getTime() - Date.now()) / 1000);
+/** Push a best-effort notification to every admin device. */
+export async function notifyAdmins(title: string, body: string): Promise<void> {
+  try {
+    const { data: admins } = await supabase
+      .from('users')
+      .select('expo_push_token')
+      .eq('role', 'admin')
+      .not('expo_push_token', 'is', null);
+    admins?.forEach((a) => {
+      if (a.expo_push_token) sendPushNotification(a.expo_push_token, title, body);
+    });
+  } catch {
+    // Notification delivery is best-effort
+  }
+}
 
-  const id = await Notifications.scheduleNotificationAsync({
-    content: {
-      title: 'تذكير بموعدك',
-      body: 'موعدك في صالون أبو عادل بعد 30 دقيقة',
-      sound: true,
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: Math.floor(secondsUntilReminder),
-      repeats: false,
-    },
-  });
+const reminderKey = (bookingId: string) => `reminder_${bookingId}`;
 
-  return id;
+/** Schedule a local "30 minutes before" reminder for a booking.
+    Skipped when the booking is less than 30 minutes away. Best-effort. */
+export async function scheduleBookingReminder(bookingId: string, startTime: Date): Promise<void> {
+  try {
+    const reminderTime = new Date(startTime.getTime() - 30 * 60 * 1000);
+    const seconds = (reminderTime.getTime() - Date.now()) / 1000;
+    if (seconds <= 0) return;
+
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'تذكير بموعدك',
+        body: 'موعدك في صالون أبو عادل بعد 30 دقيقة',
+        sound: true,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: Math.floor(seconds),
+        repeats: false,
+      },
+    });
+    await AsyncStorage.setItem(reminderKey(bookingId), id);
+  } catch {
+    // Reminders are best-effort
+  }
+}
+
+/** Cancel the scheduled reminder for a booking (after cancel/reschedule). */
+export async function cancelBookingReminder(bookingId: string): Promise<void> {
+  try {
+    const id = await AsyncStorage.getItem(reminderKey(bookingId));
+    if (!id) return;
+    await Notifications.cancelScheduledNotificationAsync(id);
+    await AsyncStorage.removeItem(reminderKey(bookingId));
+  } catch {
+    // Reminders are best-effort
+  }
 }

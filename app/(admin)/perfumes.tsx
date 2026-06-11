@@ -23,6 +23,7 @@ import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { formatDate } from '../../lib/utils/time';
 import { sendPushNotification } from '../../lib/utils/notifications';
+import { navigateBack } from '../../lib/utils/navigation';
 import { uploadImage } from '../../lib/utils/uploadImage';
 
 function openWhatsApp(phone: string, message = '') {
@@ -278,7 +279,7 @@ export default function AdminPerfumes() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
           <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerTitleRow}>

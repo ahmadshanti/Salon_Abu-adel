@@ -26,6 +26,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { formatTime } from '../../lib/utils/time';
+import { navigateBack } from '../../lib/utils/navigation';
 
 interface Stats {
   todayBookings: number;
@@ -143,7 +144,7 @@ export default function AdminDashboard() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router)}>
             <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
           </TouchableOpacity>
           <View style={styles.headerTitleRow}>

@@ -18,6 +18,7 @@ import { Linking } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { sendPushNotification } from '../../lib/utils/notifications';
+import { navigateBack } from '../../lib/utils/navigation';
 
 function openWhatsApp(phone: string, message = '') {
   const cleaned = phone.replace(/[^0-9]/g, '');
@@ -147,7 +148,7 @@ export default function AdminGroomRequests() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
           <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerTitleRow}>

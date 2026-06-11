@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { uploadImage } from '../../lib/utils/uploadImage';
+import { navigateBack } from '../../lib/utils/navigation';
 
 const { width } = Dimensions.get('window');
 const IMG_SIZE = (width - 52) / 2;
@@ -119,7 +120,7 @@ export default function AdminGallery() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
             <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
           </TouchableOpacity>
           <View style={styles.headerTitleRow}>

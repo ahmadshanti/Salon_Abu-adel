@@ -16,6 +16,7 @@ import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { formatDate, formatTime } from '../../lib/utils/time';
 import { uploadImage } from '../../lib/utils/uploadImage';
+import { notifyAdmins, cancelBookingReminder } from '../../lib/utils/notifications';
 
 interface UserProfile {
   full_name: string;
@@ -109,7 +110,7 @@ export default function Profile() {
     setProfile((prev) => prev ? { ...prev, avatar_url: avatarUrl } : prev);
   }
 
-  async function cancelBooking(bookingId: string) {
+  async function cancelBooking(booking: Booking) {
     Alert.alert('إلغاء الموعد', 'هل أنت متأكد من إلغاء هذا الموعد؟', [
       { text: 'رجوع', style: 'cancel' },
       {
@@ -119,12 +120,18 @@ export default function Profile() {
           const { error } = await supabase
             .from('bookings')
             .update({ status: 'cancelled' })
-            .eq('id', bookingId);
-          if (!error) {
-            setBookings((prev) =>
-              prev.map((b) => (b.id === bookingId ? { ...b, status: 'cancelled' } : b)),
-            );
+            .eq('id', booking.id);
+          if (error) {
+            Alert.alert('خطأ', 'تعذر إلغاء الموعد، تأكد من الاتصال وحاول مجدداً');
+            return;
           }
+          setBookings((prev) =>
+            prev.map((b) => (b.id === booking.id ? { ...b, status: 'cancelled' } : b)),
+          );
+          cancelBookingReminder(booking.id);
+          const start = new Date(booking.start_time);
+          notifyAdmins('إلغاء حجز',
+            `${booking.services?.name ?? 'موعد'} — ${formatDate(start)} ${formatTime(start)}`);
         },
       },
     ]);
@@ -218,7 +225,10 @@ export default function Profile() {
               <BookingCard
                 key={b.id}
                 booking={b}
-                onCancel={() => cancelBooking(b.id)}
+                onCancel={() => cancelBooking(b)}
+                onReschedule={() =>
+                  router.push({ pathname: '/(user)/booking', params: { reschedule: b.id } })
+                }
               />
             ))
           )}
@@ -241,10 +251,12 @@ function BookingCard({
   booking,
   past = false,
   onCancel,
+  onReschedule,
 }: {
   booking: Booking;
   past?: boolean;
   onCancel?: () => void;
+  onReschedule?: () => void;
 }) {
   const isCancelled = booking.status === 'cancelled';
   return (
@@ -278,6 +290,11 @@ function BookingCard({
             {isCancelled ? 'ملغي' : 'مؤكد'}
           </Text>
         </View>
+        {onReschedule && !isCancelled && (
+          <TouchableOpacity style={styles.rescheduleBtn} onPress={onReschedule}>
+            <Text style={styles.rescheduleBtnText}>تغيير الموعد</Text>
+          </TouchableOpacity>
+        )}
         {onCancel && !isCancelled && (
           <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
             <Text style={styles.cancelBtnText}>إلغاء</Text>
@@ -380,4 +397,13 @@ const styles = StyleSheet.create({
     borderColor: '#E0525233',
   },
   cancelBtnText: { color: colors.error, fontSize: 11, fontWeight: '700' },
+  rescheduleBtn: {
+    backgroundColor: colors.goldFaint,
+    borderRadius: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: colors.goldLight,
+  },
+  rescheduleBtnText: { color: colors.gold, fontSize: 11, fontWeight: '700' },
 });

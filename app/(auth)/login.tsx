@@ -26,8 +26,6 @@ export default function Login() {
   const [focused,  setFocused]  = useState<'email' | 'pass' | null>(null);
 
   /* ── Animated values ── */
-  const glowOpacity  = useRef(new Animated.Value(0)).current;
-  const glowScale    = useRef(new Animated.Value(0.6)).current;
   const logoOpacity  = useRef(new Animated.Value(0)).current;
   const logoScale    = useRef(new Animated.Value(0.5)).current;
   const logoFloat    = useRef(new Animated.Value(0)).current;
@@ -39,11 +37,6 @@ export default function Login() {
 
   useEffect(() => {
     Animated.parallel([
-      /* glow */
-      Animated.parallel([
-        Animated.timing(glowOpacity, { toValue: 0.75, duration: 900, useNativeDriver: true }),
-        Animated.spring(glowScale, { toValue: 1, friction: 8, tension: 60, useNativeDriver: true }),
-      ]),
       /* logo — delayed 150ms */
       Animated.sequence([
         Animated.delay(150),
@@ -76,13 +69,6 @@ export default function Login() {
           Animated.timing(logoFloat, { toValue: 0,  duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       ).start();
-      /* glow pulse loop */
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(glowOpacity, { toValue: 1,    duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(glowOpacity, { toValue: 0.45, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        ]),
-      ).start();
     });
   }, []);
 
@@ -90,23 +76,24 @@ export default function Login() {
   function pressOut() { Animated.spring(btnScale, { toValue: 1,    friction: 5, tension: 200, useNativeDriver: true }).start(); }
 
   async function handleLogin() {
+    if (loading) return;
     setErrorMsg('');
     if (!email.trim() || !password.trim()) { setErrorMsg('يرجى تعبئة جميع الحقول'); return; }
     setLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     if (error) {
       setLoading(false);
-      setErrorMsg(error.message === 'Email not confirmed'
-        ? 'يرجى تأكيد البريد الإلكتروني أولاً'
-        : 'البريد الإلكتروني أو كلمة المرور غير صحيحة');
+      if (error.message === 'Email not confirmed') {
+        setErrorMsg('يرجى تأكيد البريد الإلكتروني أولاً');
+      } else if (error.status === undefined || error.status === 0) {
+        setErrorMsg('تعذر الاتصال بالخادم، تحقق من اتصالك بالإنترنت');
+      } else {
+        setErrorMsg('البريد الإلكتروني أو كلمة المرور غير صحيحة');
+      }
       return;
     }
-    const userId = data.user?.id;
-    if (userId) {
-      const { data: ud } = await supabase.from('users').select('role').eq('id', userId).single();
-      setLoading(false);
-      router.replace(ud?.role === 'admin' ? '/(admin)' : '/(user)');
-    } else { setLoading(false); router.replace('/(user)'); }
+    // Success: the root layout listens for the new session, fetches the role,
+    // and redirects to /(admin) or /(user). Keep the spinner until then.
   }
 
   return (
@@ -115,17 +102,6 @@ export default function Login() {
 
         {/* ═══ HERO ═══ */}
         <View style={s.hero}>
-
-          {/* Decorative bg rings */}
-          <View style={s.ringOuter} />
-          <View style={s.ringMid} />
-
-          {/* Animated glow */}
-          <Animated.View style={[s.glowContainer, { opacity: glowOpacity, transform: [{ scale: glowScale }] }]}>
-            <View style={s.glowRing3} />
-            <View style={s.glowRing2} />
-            <View style={s.glowRing1} />
-          </Animated.View>
 
           {/* Logo */}
           <Animated.View style={{
@@ -191,6 +167,11 @@ export default function Login() {
             </View>
           </View>
 
+          {/* Forgot password */}
+          <TouchableOpacity style={s.forgotRow} onPress={() => router.push('/(auth)/forgot-password')}>
+            <Text style={s.forgotTxt}>نسيت كلمة المرور؟</Text>
+          </TouchableOpacity>
+
           {/* Error */}
           {errorMsg ? (
             <View style={s.errorBox}>
@@ -241,41 +222,12 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  ringOuter: {
-    position: 'absolute',
-    width: 340, height: 340, borderRadius: 170,
-    borderWidth: 1, borderColor: 'rgba(212,175,55,0.05)',
-  },
-  ringMid: {
-    position: 'absolute',
-    width: 240, height: 240, borderRadius: 120,
-    borderWidth: 1, borderColor: 'rgba(212,175,55,0.08)',
-  },
-  glowContainer: {
-    position: 'absolute',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  glowRing3: {
-    position: 'absolute',
-    width: 300, height: 300, borderRadius: 150,
-    backgroundColor: 'rgba(212,175,55,0.04)',
-  },
-  glowRing2: {
-    position: 'absolute',
-    width: 210, height: 210, borderRadius: 105,
-    backgroundColor: 'rgba(212,175,55,0.07)',
-  },
-  glowRing1: {
-    position: 'absolute',
-    width: 130, height: 130, borderRadius: 65,
-    backgroundColor: 'rgba(212,175,55,0.13)',
-  },
   logo: {
     width: 170,
     height: 170,
   },
   titleWrap: { alignItems: 'center', gap: 5, marginTop: 10 },
-  salonName: { color: GOLD, fontSize: 22, fontWeight: '800', letterSpacing: 0.5 },
+  salonName: { color: GOLD, fontSize: 22, fontWeight: '800' },
   tagline:   { color: MUTED, fontSize: 13 },
 
   /* ── Card ── */
@@ -306,6 +258,10 @@ const s = StyleSheet.create({
   },
   input: { flex: 1, paddingVertical: 15, color: WHITE, fontSize: 15 },
   iconWrap: { paddingLeft: 10 },
+
+  /* ── Forgot password ── */
+  forgotRow: { alignSelf: 'flex-start', marginTop: -4 },
+  forgotTxt: { color: GOLD, fontSize: 13, fontWeight: '600' },
 
   /* ── Error ── */
   errorBox: {

@@ -1,5 +1,4 @@
-import { useEffect } from 'react';
-import { Tabs, router } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import {
   LayoutDashboard,
@@ -11,8 +10,8 @@ import {
   UserCircle,
   LayoutGrid,
 } from 'lucide-react-native';
-import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
+import { useAuth } from '../../lib/hooks/useAuth';
 
 function TabIcon({
   Icon,
@@ -39,14 +38,11 @@ function TabIcon({
 }
 
 export default function AdminLayout() {
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace('/(auth)/login');
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  const { session, role, loading } = useAuth();
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: '#0E0E13' }} />;
+  if (!session) return <Redirect href="/(auth)/login" />;
+  if (role !== 'admin') return <Redirect href="/(user)" />;
 
   return (
     <Tabs

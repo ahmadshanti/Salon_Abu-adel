@@ -1,9 +1,10 @@
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Image } from 'react-native';
 import { Home, CalendarDays, Sparkles, User } from 'lucide-react-native';
 import { colors } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../lib/hooks/useAuth';
 
 function TabIcon({
   Icon,
@@ -63,6 +64,12 @@ function ProfileTabIcon({ focused }: { focused: boolean }) {
 }
 
 export default function UserLayout() {
+  const { session, role, loading } = useAuth();
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: '#0B0B0F' }} />;
+  if (!session) return <Redirect href="/(auth)/login" />;
+  if (role === 'admin') return <Redirect href="/(admin)" />;
+
   return (
     <Tabs
       screenOptions={{

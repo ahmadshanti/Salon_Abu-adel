@@ -1,21 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, TextInput, KeyboardAvoidingView,
-  Platform, Dimensions,
+  Platform, Dimensions, BackHandler,
 } from 'react-native';
 import {
   CheckCircle, ChevronLeft, CalendarDays,
-  Clock, Scissors, Crown, ArrowLeft,
+  Clock, Scissors, Crown, ArrowLeft, WifiOff,
 } from 'lucide-react-native';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import {
   getNext14Days, getDayOfWeek, getAvailableSlots,
+  getHebronDayBounds, formatDayNumber,
   formatDate, formatTime,
   type WorkingHours, type BookingSlot, type BlockedSlot,
 } from '../../lib/utils/time';
-import { sendPushNotification } from '../../lib/utils/notifications';
+import {
+  notifyAdmins, scheduleBookingReminder, cancelBookingReminder,
+} from '../../lib/utils/notifications';
 
 const { width } = Dimensions.get('window');
 const GOLD      = '#D4AF37';
@@ -31,7 +35,26 @@ interface Service { id: string; name: string; price_ils: number; duration_minute
 type Step = 1 | 2 | 3 | 4;
 type Mode = 'choose' | 'regular' | 'groom';
 
+/* Re-check availability right before inserting. Returns null when the
+   check itself failed (e.g. offline) — never treat that as "free".
+   `excludeBookingId` ignores the booking being rescheduled. */
+async function checkConflict(
+  start: Date, end: Date, excludeBookingId?: string | null,
+): Promise<boolean | null> {
+  let bkQuery = supabase.from('bookings').select('id').eq('status', 'confirmed')
+    .lt('start_time', end.toISOString()).gt('end_time', start.toISOString());
+  if (excludeBookingId) bkQuery = bkQuery.neq('id', excludeBookingId);
+  const [bk, bl] = await Promise.all([
+    bkQuery.limit(1),
+    supabase.from('blocked_slots').select('id')
+      .lt('start_time', end.toISOString()).gt('end_time', start.toISOString()).limit(1),
+  ]);
+  if (bk.error || bl.error) return null;
+  return (bk.data?.length ?? 0) > 0 || (bl.data?.length ?? 0) > 0;
+}
+
 export default function Booking() {
+  const params = useLocalSearchParams<{ reschedule?: string }>();
   /* ─ groom ─ */
   const [mode,         setMode]         = useState<Mode>('choose');
   const [groomTime,    setGroomTime]    = useState('');
@@ -51,16 +74,67 @@ export default function Booking() {
   const [notes,        setNotes]        = useState('');
   const [busy,         setBusy]         = useState(false);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError,   setSlotsError]   = useState(false);
   const [loading,      setLoading]      = useState(true);
+  const [bootError,    setBootError]    = useState(false);
   const [success,      setSuccess]      = useState(false);
+  /* ─ reschedule ─ */
+  const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const handledReschedule = useRef<string | null>(null);
 
   useEffect(() => { boot(); }, []);
 
+  /* Entered from the profile with ?reschedule=<bookingId> */
+  useEffect(() => {
+    const id = typeof params.reschedule === 'string' && params.reschedule ? params.reschedule : null;
+    if (!id || loading || bootError) return;
+    if (handledReschedule.current === id) return;
+    handledReschedule.current = id;
+    startReschedule(id);
+  }, [params.reschedule, loading, bootError]);
+
+  async function startReschedule(id: string) {
+    const { data } = await supabase.from('bookings')
+      .select('id, notes, status, services(id, name, price_ils, duration_minutes)')
+      .eq('id', id).single();
+    const svc = (Array.isArray(data?.services) ? data?.services[0] : data?.services) as Service | undefined;
+    if (!data || data.status !== 'confirmed' || !svc) {
+      Alert.alert('خطأ', 'تعذر فتح الموعد لتغييره');
+      return;
+    }
+    setRescheduleId(id);
+    setService(svc);
+    setNotes(data.notes ?? '');
+    setSuccess(false);
+    setDate(null);
+    setSlot(null);
+    setMode('regular');
+    setStep(2);
+  }
+
+  /* Android hardware back mirrors the on-screen back button. */
+  useFocusEffect(useCallback(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (success || groomDone) { reset(); return true; }
+      if (mode === 'groom') { setMode('choose'); return true; }
+      if (mode === 'regular') { goBack(); return true; }
+      return false; // mode chooser → default behavior
+    });
+    return () => sub.remove();
+  }, [mode, step, success, groomDone, rescheduleId]));
+
   async function boot() {
+    setLoading(true);
+    setBootError(false);
     const [svcRes, whRes] = await Promise.all([
       supabase.from('services').select('*').eq('is_active', true).order('name'),
       supabase.from('working_hours').select('*'),
     ]);
+    if (svcRes.error || whRes.error) {
+      setBootError(true);
+      setLoading(false);
+      return;
+    }
     setServices(svcRes.data ?? []);
     const hours: WorkingHours[] = whRes.data ?? [];
     setWh(hours);
@@ -72,16 +146,24 @@ export default function Booking() {
 
   async function fetchSlots(d: Date, svc: Service) {
     setSlotsLoading(true);
+    setSlotsError(false);
     setSlots([]);
     setSlot(null);
-    const s0 = new Date(d); s0.setHours(0, 0, 0, 0);
-    const s1 = new Date(d); s1.setHours(23, 59, 59, 999);
+    const { start, end } = getHebronDayBounds(d);
+    let bkQuery = supabase.from('bookings').select('start_time, end_time').eq('status', 'confirmed')
+      .lt('start_time', end.toISOString()).gt('end_time', start.toISOString());
+    // When rescheduling, the booking's own current slot stays selectable.
+    if (rescheduleId) bkQuery = bkQuery.neq('id', rescheduleId);
     const [bkRes, blRes] = await Promise.all([
-      supabase.from('bookings').select('start_time, end_time').eq('status', 'confirmed')
-        .gte('start_time', s0.toISOString()).lte('start_time', s1.toISOString()),
+      bkQuery,
       supabase.from('blocked_slots').select('start_time, end_time')
-        .gte('start_time', s0.toISOString()).lte('start_time', s1.toISOString()),
+        .lt('start_time', end.toISOString()).gt('end_time', start.toISOString()),
     ]);
+    if (bkRes.error || blRes.error) {
+      setSlotsError(true);
+      setSlotsLoading(false);
+      return;
+    }
     setSlots(getAvailableSlots(d, svc.duration_minutes,
       (bkRes.data ?? []) as BookingSlot[],
       (blRes.data ?? []) as BlockedSlot[], wh));
@@ -96,48 +178,129 @@ export default function Booking() {
   function pickDate(d: Date) { setDate(d); if (service) fetchSlots(d, service); setStep(3); }
   function pickSlot(s: Date) { setSlot(s); setStep(4); }
 
+  /* Slot taken / expired while the user was on the confirm step:
+     send them back to a fresh slot list. */
+  function backToSlots() {
+    setSlot(null);
+    setStep(3);
+    if (date && service) fetchSlots(date, service);
+  }
+
   async function confirm() {
     if (!service || !slot) return;
     setBusy(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setBusy(false); return; }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setBusy(false);
+      Alert.alert('انتهت الجلسة', 'يرجى تسجيل الدخول مرة أخرى');
+      router.replace('/(auth)/login');
+      return;
+    }
+
+    if (slot.getTime() <= Date.now()) {
+      setBusy(false);
+      Alert.alert('انتهى هذا الوقت', 'مرّ وقت هذا الموعد، اختر وقتاً آخر');
+      backToSlots();
+      return;
+    }
+
     const end = new Date(slot.getTime() + service.duration_minutes * 60000);
-    const { error } = await supabase.from('bookings').insert({
-      user_id: user.id, service_id: service.id,
+
+    const conflict = await checkConflict(slot, end, rescheduleId);
+    if (conflict === null) {
+      setBusy(false);
+      Alert.alert('خطأ', 'تعذر التحقق من توفر الوقت، تأكد من الاتصال وحاول مجدداً');
+      return;
+    }
+    if (conflict) {
+      setBusy(false);
+      Alert.alert('الوقت لم يعد متاحاً', 'تم حجز هذا الوقت للتو، اختر وقتاً آخر');
+      backToSlots();
+      return;
+    }
+
+    const payload = {
       start_time: slot.toISOString(), end_time: end.toISOString(),
-      status: 'confirmed', notes: notes.trim() || null,
-    });
-    if (error) { Alert.alert('خطأ', 'حدث خطأ، حاول مجدداً'); setBusy(false); return; }
-    const { data: admins } = await supabase.from('users').select('expo_push_token')
-      .eq('role', 'admin').not('expo_push_token', 'is', null);
-    admins?.forEach((a) => {
-      if (a.expo_push_token)
-        sendPushNotification(a.expo_push_token, 'حجز جديد',
-          `${service.name} — ${formatDate(slot)} ${formatTime(slot)}`);
-    });
+      notes: notes.trim() || null,
+    };
+    const res = rescheduleId
+      ? await supabase.from('bookings').update(payload)
+          .eq('id', rescheduleId).select('id').single()
+      : await supabase.from('bookings').insert({
+          ...payload, user_id: session.user.id,
+          service_id: service.id, status: 'confirmed',
+        }).select('id').single();
+    if (res.error) {
+      setBusy(false);
+      // 23P01: exclusion constraint — someone booked the same slot first
+      if (res.error.code === '23P01') {
+        Alert.alert('الوقت لم يعد متاحاً', 'تم حجز هذا الوقت للتو، اختر وقتاً آخر');
+        backToSlots();
+      } else {
+        Alert.alert('خطأ', 'حدث خطأ، حاول مجدداً');
+      }
+      return;
+    }
+
+    notifyAdmins(rescheduleId ? 'تغيير موعد' : 'حجز جديد',
+      `${service.name} — ${formatDate(slot)} ${formatTime(slot)}`);
+
+    const bookingId = res.data?.id ?? rescheduleId;
+    if (bookingId) {
+      if (rescheduleId) await cancelBookingReminder(rescheduleId);
+      scheduleBookingReminder(bookingId, slot);
+    }
+
     setBusy(false); setSuccess(true);
   }
 
   async function submitGroom() {
     if (!groomTime.trim()) return;
     setGroomBusy(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setGroomBusy(false); return; }
-    await supabase.from('groom_requests').insert({
-      user_id: user.id, preferred_time_text: groomTime.trim(),
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setGroomBusy(false);
+      Alert.alert('انتهت الجلسة', 'يرجى تسجيل الدخول مرة أخرى');
+      router.replace('/(auth)/login');
+      return;
+    }
+    const { error } = await supabase.from('groom_requests').insert({
+      user_id: session.user.id, preferred_time_text: groomTime.trim(),
       notes: groomNotes.trim() || null, status: 'pending',
     });
-    setGroomBusy(false); setGroomDone(true);
+    setGroomBusy(false);
+    if (error) {
+      Alert.alert('خطأ', 'تعذر إرسال الطلب، تأكد من الاتصال وحاول مجدداً');
+      return;
+    }
+    setGroomDone(true);
   }
 
   function goBack() {
+    // Rescheduling starts at step 2 — backing out returns to the profile.
+    if (rescheduleId && step === 2) { exitReschedule(); return; }
     if (step === 1) setMode('choose');
     else if (step === 2) setStep(1);
     else if (step === 3) { setStep(2); setSlot(null); }
     else setStep(3);
   }
 
+  function clearRescheduleParam() {
+    setRescheduleId(null);
+    handledReschedule.current = null;
+    router.setParams({ reschedule: '' });
+  }
+
+  function exitReschedule() {
+    clearRescheduleParam();
+    setService(null); setDate(null); setSlot(null); setNotes('');
+    setMode('choose'); setStep(1);
+    if (router.canGoBack()) router.back();
+  }
+
   function reset() {
+    clearRescheduleParam();
     setStep(1); setService(null); setDate(null); setSlot(null); setNotes('');
     setSuccess(false); setMode('choose'); setGroomTime(''); setGroomNotes(''); setGroomDone(false);
   }
@@ -145,13 +308,27 @@ export default function Booking() {
   /* ─── loading ─── */
   if (loading) return <View style={s.center}><ActivityIndicator size="large" color={GOLD} /></View>;
 
+  /* ─── boot failed (offline / server error) ─── */
+  if (bootError) return (
+    <View style={s.center}>
+      <WifiOff size={40} color={MUTED} strokeWidth={1.5} />
+      <Text style={s.doneTitle}>تعذر تحميل البيانات</Text>
+      <Text style={s.doneSub}>تأكد من اتصالك بالإنترنت وحاول مجدداً</Text>
+      <TouchableOpacity style={s.goldBtn} onPress={boot}>
+        <Text style={s.goldBtnTxt}>إعادة المحاولة</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   /* ─── success ─── */
   if (success) return (
     <View style={s.center}>
       <View style={s.ring}><CheckCircle size={48} color={GOLD} strokeWidth={1.5} /></View>
-      <Text style={s.doneTitle}>تم الحجز بنجاح!</Text>
+      <Text style={s.doneTitle}>{rescheduleId ? 'تم تغيير الموعد بنجاح!' : 'تم الحجز بنجاح!'}</Text>
       <Text style={s.doneSub}>{service?.name}{'\n'}{date && formatDate(date)} • {slot && formatTime(slot)}</Text>
-      <TouchableOpacity style={s.goldBtn} onPress={reset}><Text style={s.goldBtnTxt}>حجز جديد</Text></TouchableOpacity>
+      <TouchableOpacity style={s.goldBtn} onPress={reset}>
+        <Text style={s.goldBtnTxt}>{rescheduleId ? 'العودة' : 'حجز جديد'}</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -242,7 +419,7 @@ export default function Booking() {
         </TouchableOpacity>
         <View>
           <Text style={s.stepTitle}>{stepTitles[step - 1]}</Text>
-          <Text style={s.stepSub}>الخطوة {step} من 4</Text>
+          <Text style={s.stepSub}>{rescheduleId ? 'تغيير الموعد' : `الخطوة ${step} من 4`}</Text>
         </View>
       </View>
 
@@ -256,6 +433,15 @@ export default function Booking() {
       {/* ── Step 1: Service ── */}
       {step === 1 && (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+          {services.length === 0 && (
+            <View style={s.emptySlots}>
+              <Scissors size={34} color={MUTED} strokeWidth={1} />
+              <Text style={s.emptySlotsMsg}>لا توجد خدمات متاحة حالياً</Text>
+              <TouchableOpacity style={s.retryBtn} onPress={boot}>
+                <Text style={s.goldBtnTxt}>تحديث</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           {services.map((sv) => {
             const isLast = lastId === sv.id;
             return (
@@ -294,7 +480,7 @@ export default function Booking() {
                   <Text style={[s.dateWeekday, on && s.dateOn]}>
                     {d.toLocaleDateString('ar-PS', { weekday: 'short', timeZone: 'Asia/Hebron' })}
                   </Text>
-                  <Text style={[s.dateNum, on && s.dateOn]}>{d.getDate()}</Text>
+                  <Text style={[s.dateNum, on && s.dateOn]}>{formatDayNumber(d)}</Text>
                   <Text style={[s.dateMon, on && s.dateOn]}>
                     {d.toLocaleDateString('ar-PS', { month: 'short', timeZone: 'Asia/Hebron' })}
                   </Text>
@@ -316,10 +502,21 @@ export default function Booking() {
             <View style={{ paddingVertical: 60, alignItems: 'center' }}>
               <ActivityIndicator color={GOLD} size="large" />
             </View>
+          ) : slotsError ? (
+            <View style={s.emptySlots}>
+              <WifiOff size={34} color={MUTED} strokeWidth={1} />
+              <Text style={s.emptySlotsMsg}>تعذر تحميل الأوقات المتاحة</Text>
+              <TouchableOpacity style={s.retryBtn} onPress={() => date && service && fetchSlots(date, service)}>
+                <Text style={s.goldBtnTxt}>إعادة المحاولة</Text>
+              </TouchableOpacity>
+            </View>
           ) : slots.length === 0 ? (
             <View style={s.emptySlots}>
               <Clock size={34} color={MUTED} strokeWidth={1} />
               <Text style={s.emptySlotsMsg}>لا توجد أوقات متاحة</Text>
+              <TouchableOpacity style={s.retryBtn} onPress={() => date && service && fetchSlots(date, service)}>
+                <Text style={s.goldBtnTxt}>تحديث</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={s.slotsGrid}>
@@ -463,6 +660,7 @@ const s = StyleSheet.create({
   goldBtn:    { backgroundColor: GOLD, borderRadius: 16, paddingVertical: 17, alignItems: 'center' },
   goldBtnOff: { opacity: 0.5 },
   goldBtnTxt: { color: BG, fontSize: 16, fontWeight: '800' },
+  retryBtn:   { backgroundColor: GOLD, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 28, alignItems: 'center', marginTop: 4 },
 
   /* Success */
   ring:      { width: 96, height: 96, borderRadius: 48, backgroundColor: GOLD_BG, borderWidth: 1.5, borderColor: GOLD_BD, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },

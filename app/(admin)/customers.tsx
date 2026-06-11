@@ -17,6 +17,7 @@ import { UserCircle, MessageCircle, Search, CalendarDays, ShoppingBag, Trash2, A
 import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
+import { navigateBack } from '../../lib/utils/navigation';
 
 interface Customer {
   id: string;
@@ -146,7 +147,7 @@ export default function AdminCustomers() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
           <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
         </TouchableOpacity>
         <View style={styles.headerTitleRow}>

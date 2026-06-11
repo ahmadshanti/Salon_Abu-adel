@@ -234,7 +234,7 @@ const s = StyleSheet.create({
   },
   logo: { width: 140, height: 140 },
   titleWrap: { alignItems: 'center', gap: 4, marginTop: 8 },
-  salonName: { color: GOLD, fontSize: 20, fontWeight: '800', letterSpacing: 0.4 },
+  salonName: { color: GOLD, fontSize: 20, fontWeight: '800' },
   tagline:   { color: MUTED, fontSize: 12 },
 
   /* ── Card ── */

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
-import { Image, Text, StyleSheet, Animated } from 'react-native';
-import { Slot, router } from 'expo-router';
+import { Image, Text, StyleSheet, Animated, View } from 'react-native';
+import { Slot, router, useSegments } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import Logo from '../assets';
 import { registerForPushNotifications, savePushToken } from '../lib/utils/notifications';
@@ -8,12 +8,18 @@ import type { Session } from '@supabase/supabase-js';
 
 type Role = 'customer' | 'admin' | null;
 
+/* Auth screens that manage their own navigation (register signs out then goes
+   to login; the reset flow holds a temporary recovery session). The root
+   layout must not auto-redirect away from them. */
+const SELF_MANAGED_AUTH_SCREENS = ['register', 'forgot-password', 'reset-password'];
+
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [role, setRole] = useState<Role>(null);
+  const [minSplashDone, setMinSplashDone] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const segments = useSegments();
 
-  const didNavigate = useRef(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.85)).current;
   const splashOpacity = useRef(new Animated.Value(1)).current;
@@ -47,18 +53,11 @@ export default function RootLayout() {
         fetchRole(session.user.id);
       } else {
         setRole(null);
-        didNavigate.current = false;
       }
     });
 
-    // Hide splash after 2.5s minimum
-    const timer = setTimeout(() => {
-      Animated.timing(splashOpacity, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-      }).start(() => setShowSplash(false));
-    }, 2500);
+    // Minimum splash duration
+    const timer = setTimeout(() => setMinSplashDone(true), 2500);
 
     return () => {
       subscription.unsubscribe();
@@ -67,52 +66,77 @@ export default function RootLayout() {
   }, []);
 
   async function fetchRole(userId: string) {
-    const { data } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single();
-    setRole((data?.role as Role) ?? 'customer');
+    try {
+      const { data } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', userId)
+        .single();
+      setRole((data?.role as Role) ?? 'customer');
+    } catch {
+      setRole('customer');
+    }
 
     registerForPushNotifications().then((token) => {
       if (token) savePushToken(userId, token);
     }).catch(() => {});
   }
 
-  // Navigate once splash is gone and we know who the user is
+  /* ── Route guard: runs while the splash still covers the screen,
+     so the user never sees the wrong screen flash. ── */
   useEffect(() => {
-    if (showSplash || session === undefined) return;
+    if (session === undefined) return;
+
+    const inAuthGroup = segments[0] === '(auth)';
+    const authScreen = inAuthGroup ? segments[1] : null;
 
     if (!session) {
-      router.replace('/(auth)/login');
+      // Logged out → only auth screens are allowed
+      if (!inAuthGroup) router.replace('/(auth)/login');
       return;
     }
 
-    if (!role) return;
-    if (didNavigate.current) return;
-    didNavigate.current = true;
+    // Logged in but on a self-managed auth screen → leave it alone
+    if (authScreen && SELF_MANAGED_AUTH_SCREENS.includes(authScreen)) return;
 
-    router.replace(role === 'admin' ? '/(admin)' : '/(user)');
-  }, [showSplash, session, role]);
+    if (!role) return; // wait until we know who the user is
 
-  if (showSplash) {
-    return (
-      <Animated.View style={[styles.splash, { opacity: splashOpacity }]}>
-        <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }], alignItems: 'center', gap: 8 }}>
-          <Text style={styles.salonName}>صالون أبو عادل</Text>
-          <Image source={Logo} style={styles.logo} resizeMode="contain" />
+    const homeGroup = role === 'admin' ? '(admin)' : '(user)';
+    if (segments[0] !== homeGroup) {
+      router.replace(role === 'admin' ? '/(admin)' : '/(user)');
+    }
+  }, [session, role, segments]);
+
+  /* ── Hide splash only after the minimum time AND auth is resolved ── */
+  const authReady = session !== undefined && (!session || role !== null);
+  useEffect(() => {
+    if (!showSplash || !minSplashDone || !authReady) return;
+    Animated.timing(splashOpacity, {
+      toValue: 0,
+      duration: 400,
+      useNativeDriver: true,
+    }).start(() => setShowSplash(false));
+  }, [minSplashDone, authReady, showSplash]);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: '#0A0A0F' }}>
+      <Slot />
+      {showSplash && (
+        <Animated.View style={[styles.splash, { opacity: splashOpacity }]}>
+          <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }], alignItems: 'center', gap: 8 }}>
+            <Text style={styles.salonName}>صالون أبو عادل</Text>
+            <Image source={Logo} style={styles.logo} resizeMode="contain" />
+          </Animated.View>
+          <Animated.View style={[styles.goldLine, { opacity: fadeAnim }]} />
         </Animated.View>
-        <Animated.View style={[styles.goldLine, { opacity: fadeAnim }]} />
-      </Animated.View>
-    );
-  }
-
-  return <Slot />;
+      )}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
   splash: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#0A0A0F',
     justifyContent: 'center',
     alignItems: 'center',
@@ -121,7 +145,6 @@ const styles = StyleSheet.create({
     color: '#C9A84C',
     fontSize: 32,
     fontWeight: '700',
-    letterSpacing: 4,
     textAlign: 'center',
   },
   logo: {
