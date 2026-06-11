@@ -11,27 +11,24 @@ import {
   TextInput,
   Switch,
   RefreshControl,
-  Platform,
 } from 'react-native';
-import { Clock, Plus, X, Ban, ArrowLeft } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { Clock, Plus, X, Ban } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
-import { navigateBack } from '../../lib/utils/navigation';
-import { parseTimeToMinutes } from '../../lib/utils/time';
+import { AdminHeader } from '../../components/AdminHeader';
+import { LoadingScreen } from '../../components/LoadingScreen';
+import {
+  parseTimeToMinutes,
+  type WorkingHours as WorkingHoursBase,
+  type BlockedSlot as BlockedSlotBase,
+} from '../../lib/utils/time';
 
-interface WorkingHours {
+interface WorkingHours extends WorkingHoursBase {
   id: string;
-  day_of_week: number;
-  open_time: string;
-  close_time: string;
-  is_closed: boolean;
 }
 
-interface BlockedSlot {
+interface BlockedSlot extends BlockedSlotBase {
   id: string;
-  start_time: string;
-  end_time: string;
   reason: string | null;
 }
 
@@ -40,7 +37,6 @@ const DAY_NAMES = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأر
 type Tab = 'hours' | 'blocked';
 
 export default function AdminSchedule() {
-  const router = useRouter();
   const [tab, setTab] = useState<Tab>('hours');
   const [workingHours, setWorkingHours] = useState<WorkingHours[]>([]);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
@@ -161,28 +157,19 @@ export default function AdminSchedule() {
     ]);
   }
 
-  if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={colors.gold} /></View>;
-  }
+  if (loading) return <LoadingScreen />;
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
-          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleRow}>
-          <View style={styles.headerIconWrap}>
-            <Clock size={20} color={colors.gold} strokeWidth={1.5} />
-          </View>
-          <Text style={styles.headerTitle}>الجدول</Text>
-        </View>
-        {tab === 'blocked' ? (
+      <AdminHeader
+        icon={Clock}
+        title="الجدول"
+        right={tab === 'blocked' ? (
           <TouchableOpacity style={styles.addBtn} onPress={() => setAddBlockedVisible(true)}>
             <Plus size={18} color={colors.background} strokeWidth={2.5} />
           </TouchableOpacity>
         ) : <View style={{ width: 38 }} />}
-      </View>
+      />
 
       {/* Tab Switcher */}
       <View style={styles.tabRow}>
@@ -371,23 +358,6 @@ function WorkingHoursRow({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerIconWrap: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.goldFaint, justifyContent: 'center', alignItems: 'center',
-  },
-  headerTitle: { color: colors.white, fontSize: 22, fontWeight: '700' },
   addBtn: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: colors.gold, justifyContent: 'center', alignItems: 'center',

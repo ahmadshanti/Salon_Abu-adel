@@ -7,13 +7,9 @@ import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { Lock } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
+import { authPalette } from '../../constants/theme';
 
-const GOLD    = '#D4AF37';
-const BG      = '#0B0B0F';
-const BORDER  = 'rgba(255,255,255,0.08)';
-const GOLD_BD = 'rgba(212,175,55,0.30)';
-const WHITE   = '#FFFFFF';
-const MUTED   = 'rgba(255,255,255,0.40)';
+const { GOLD, BG, BORDER, GOLD_BD, WHITE, MUTED } = authPalette;
 
 /* Supabase puts the recovery tokens in the URL fragment:
    salon-abu-adel://reset-password#access_token=...&refresh_token=...&type=recovery

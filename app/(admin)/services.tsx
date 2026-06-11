@@ -14,22 +14,14 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Scissors, Edit2, Plus, X, Clock, ArrowLeft } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { Scissors, Edit2, Plus, X, Clock } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
-import { navigateBack } from '../../lib/utils/navigation';
-
-interface Service {
-  id: string;
-  name: string;
-  price_ils: number;
-  duration_minutes: number;
-  is_active: boolean;
-}
+import { AdminHeader } from '../../components/AdminHeader';
+import { LoadingScreen } from '../../components/LoadingScreen';
+import type { Service } from '../../lib/types';
 
 export default function AdminServices() {
-  const router = useRouter();
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -92,10 +84,20 @@ export default function AdminServices() {
 
     if (editTarget) {
       const { error } = await supabase.from('services').update(payload).eq('id', editTarget.id);
-      if (!error) setServices((prev) => prev.map((s) => s.id === editTarget.id ? { ...s, ...payload } : s));
+      if (error) {
+        setSaving(false);
+        Alert.alert('خطأ', 'تعذر حفظ التعديلات، تأكد من الاتصال وحاول مجدداً');
+        return;
+      }
+      setServices((prev) => prev.map((s) => s.id === editTarget.id ? { ...s, ...payload } : s));
     } else {
       const { data, error } = await supabase.from('services').insert(payload).select().single();
-      if (!error && data) setServices((prev) => [...prev, data as Service]);
+      if (error || !data) {
+        setSaving(false);
+        Alert.alert('خطأ', 'تعذر إضافة الخدمة، تأكد من الاتصال وحاول مجدداً');
+        return;
+      }
+      setServices((prev) => [...prev, data as Service]);
     }
     setSaving(false);
     setModalVisible(false);
@@ -106,26 +108,19 @@ export default function AdminServices() {
     if (!error) setServices((prev) => prev.map((s) => s.id === service.id ? { ...s, is_active: !s.is_active } : s));
   }
 
-  if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={colors.gold} /></View>;
-  }
+  if (loading) return <LoadingScreen />;
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
-          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleRow}>
-          <View style={styles.headerIconWrap}>
-            <Scissors size={20} color={colors.gold} strokeWidth={1.5} />
-          </View>
-          <Text style={styles.headerTitle}>الخدمات</Text>
-        </View>
-        <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
-          <Plus size={18} color={colors.background} strokeWidth={2.5} />
-        </TouchableOpacity>
-      </View>
+      <AdminHeader
+        icon={Scissors}
+        title="الخدمات"
+        right={
+          <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
+            <Plus size={18} color={colors.background} strokeWidth={2.5} />
+          </TouchableOpacity>
+        }
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -217,23 +212,6 @@ export default function AdminServices() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerIconWrap: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.goldFaint, justifyContent: 'center', alignItems: 'center',
-  },
-  headerTitle: { color: colors.white, fontSize: 22, fontWeight: '700' },
   addBtn: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: colors.gold, justifyContent: 'center', alignItems: 'center',

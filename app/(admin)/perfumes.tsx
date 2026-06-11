@@ -16,36 +16,27 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Sparkles, Edit2, Plus, X, Check, ShoppingBag, Camera, TrendingDown, MessageCircle, TrendingUp, Package, ArrowLeft } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
-import { Linking } from 'react-native';
+import { Sparkles, Edit2, Plus, X, Check, ShoppingBag, Camera, TrendingDown, MessageCircle, TrendingUp, Package } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { formatDate } from '../../lib/utils/time';
 import { sendPushNotification } from '../../lib/utils/notifications';
-import { navigateBack } from '../../lib/utils/navigation';
+import { openWhatsApp } from '../../lib/utils/whatsapp';
 import { uploadImage } from '../../lib/utils/uploadImage';
+import { AdminHeader } from '../../components/AdminHeader';
+import { LoadingScreen } from '../../components/LoadingScreen';
+import type { Perfume as PerfumeRow, OrderStatus } from '../../lib/types';
 
-function openWhatsApp(phone: string, message = '') {
-  const cleaned = phone.replace(/[^0-9]/g, '');
-  Linking.openURL(`https://wa.me/${cleaned}?text=${encodeURIComponent(message)}`);
-}
-
-interface Perfume {
-  id: string;
-  name: string;
-  description: string;
-  price_ils: number;
+/** Admin view includes the cost price, which is never shown to customers. */
+interface Perfume extends PerfumeRow {
   cost_price_ils: number | null;
-  stock_quantity: number;
-  image_url: string | null;
-  is_active: boolean;
 }
 
 interface PerfumeOrder {
   id: string;
+  perfume_id: string;
   quantity: number;
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  status: OrderStatus;
   created_at: string;
   perfumes: { name: string; price_ils: number; cost_price_ils: number | null } | null;
   users: { full_name: string; whatsapp_number: string; expo_push_token: string | null } | null;
@@ -54,7 +45,6 @@ interface PerfumeOrder {
 type Tab = 'perfumes' | 'orders' | 'sales';
 
 export default function AdminPerfumes() {
-  const router = useRouter();
   const [tab, setTab] = useState<Tab>('sales');
   const [perfumes, setPerfumes] = useState<Perfume[]>([]);
   const [orders, setOrders] = useState<PerfumeOrder[]>([]);
@@ -81,12 +71,12 @@ export default function AdminPerfumes() {
       supabase.from('perfumes').select('*').order('name'),
       supabase
         .from('perfume_orders')
-        .select('id, quantity, status, created_at, perfumes(name, price_ils, cost_price_ils), users(full_name, whatsapp_number, expo_push_token)')
+        .select('id, perfume_id, quantity, status, created_at, perfumes(name, price_ils, cost_price_ils), users(full_name, whatsapp_number, expo_push_token)')
         .order('created_at', { ascending: false })
         .limit(100),
     ]);
     setPerfumes(perfumesRes.data ?? []);
-    setOrders((ordersRes.data ?? []) as PerfumeOrder[]);
+    setOrders((ordersRes.data ?? []) as unknown as PerfumeOrder[]);
     setLoading(false);
     setRefreshing(false);
   }, []);
@@ -141,19 +131,15 @@ export default function AdminPerfumes() {
       }
     }
 
+    const pickerOptions: ImagePicker.ImagePickerOptions = {
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    };
     const result = source === 'camera'
-      ? await ImagePicker.launchCameraAsync({
-          mediaTypes: 'images' as any,
-          quality: 0.8,
-          allowsEditing: true,
-          aspect: [1, 1],
-        })
-      : await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: 'images' as any,
-          quality: 0.8,
-          allowsEditing: true,
-          aspect: [1, 1],
-        });
+      ? await ImagePicker.launchCameraAsync(pickerOptions)
+      : await ImagePicker.launchImageLibraryAsync(pickerOptions);
 
     if (!result.canceled && result.assets[0]) {
       setLocalImageUri(result.assets[0].uri);
@@ -183,6 +169,12 @@ export default function AdminPerfumes() {
       return;
     }
 
+    const costNum = costPrice.trim() ? parseInt(costPrice, 10) : null;
+    if (costNum != null && costNum >= priceNum) {
+      Alert.alert('خطأ', 'يجب ان يكون السعر اكبر من التكلفة');
+      return;
+    }
+
     setSaving(true);
 
     // Upload new image if a local URI was selected (not a remote URL)
@@ -193,8 +185,6 @@ export default function AdminPerfumes() {
     } else if (localImageUri?.startsWith('http')) {
       imageUrl = localImageUri;
     }
-
-    const costNum = costPrice.trim() ? parseInt(costPrice, 10) : null;
 
     const payload = {
       name: name.trim(),
@@ -208,10 +198,20 @@ export default function AdminPerfumes() {
 
     if (editTarget) {
       const { error } = await supabase.from('perfumes').update(payload).eq('id', editTarget.id);
-      if (!error) setPerfumes((prev) => prev.map((p) => p.id === editTarget.id ? { ...p, ...payload } : p));
+      if (error) {
+        setSaving(false);
+        Alert.alert('خطأ', 'تعذر حفظ التعديلات، تأكد من الاتصال وحاول مجدداً');
+        return;
+      }
+      setPerfumes((prev) => prev.map((p) => p.id === editTarget.id ? { ...p, ...payload } : p));
     } else {
       const { data, error } = await supabase.from('perfumes').insert(payload).select().single();
-      if (!error && data) setPerfumes((prev) => [...prev, data as Perfume]);
+      if (error || !data) {
+        setSaving(false);
+        Alert.alert('خطأ', 'تعذر إضافة العطر، تأكد من الاتصال وحاول مجدداً');
+        return;
+      }
+      setPerfumes((prev) => [...prev, data as Perfume]);
     }
 
     setSaving(false);
@@ -251,8 +251,8 @@ export default function AdminPerfumes() {
 
     if (error) { Alert.alert('خطأ', 'حدث خطأ أثناء تحديث الطلب'); return; }
 
-    if (action === 'approved' && order.perfumes) {
-      const perfume = perfumes.find((p) => p.name === order.perfumes?.name);
+    if (action === 'approved') {
+      const perfume = perfumes.find((p) => p.id === order.perfume_id);
       if (perfume) {
         const newStock = Math.max(0, perfume.stock_quantity - order.quantity);
         await supabase.from('perfumes').update({ stock_quantity: newStock }).eq('id', perfume.id);
@@ -269,31 +269,22 @@ export default function AdminPerfumes() {
     setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: action } : o));
   }
 
-  if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color={colors.gold} /></View>;
-  }
+  if (loading) return <LoadingScreen />;
 
   const pendingOrders = orders.filter((o) => o.status === 'pending');
   const otherOrders = orders.filter((o) => o.status !== 'pending');
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
-          <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleRow}>
-          <View style={styles.headerIconWrap}>
-            <Sparkles size={20} color={colors.gold} strokeWidth={1.5} />
-          </View>
-          <Text style={styles.headerTitle}>العطور</Text>
-        </View>
-        {tab === 'perfumes' ? (
+      <AdminHeader
+        icon={Sparkles}
+        title="العطور"
+        right={tab === 'perfumes' ? (
           <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
             <Plus size={18} color={colors.background} strokeWidth={2.5} />
           </TouchableOpacity>
         ) : <View style={{ width: 38 }} />}
-      </View>
+      />
 
       {/* Tab Switcher */}
       <View style={styles.tabRow}>
@@ -343,7 +334,7 @@ export default function AdminPerfumes() {
                 <Text style={styles.perfumePriceRow}>
                   بيع: <Text style={styles.sellPrice}>{p.price_ils} ₪</Text>
                   {p.cost_price_ils != null && (
-                    <Text style={styles.costPrice}>  •  تكلفة: {p.cost_price_ils} ₪</Text>
+                    <Text style={styles.costPrice}> • تكلفة: {p.cost_price_ils} ₪</Text>
                   )}
                 </Text>
                 <Text style={styles.perfumeMeta}>مخزون: {p.stock_quantity}</Text>
@@ -686,23 +677,6 @@ function OrderCard({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 40, paddingBottom: 16,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  headerIconWrap: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.goldFaint, justifyContent: 'center', alignItems: 'center',
-  },
-  headerTitle: { color: colors.white, fontSize: 22, fontWeight: '700' },
   addBtn: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: colors.gold, justifyContent: 'center', alignItems: 'center',
@@ -773,7 +747,6 @@ const styles = StyleSheet.create({
   orderMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   orderQty: { color: colors.muted, fontSize: 13 },
   orderTotal: { color: colors.gold, fontSize: 15, fontWeight: '700' },
-  orderWhatsapp: { color: colors.text.secondary, fontSize: 12, textAlign: 'right' },
   orderActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
   approveBtn: {
     flex: 1, backgroundColor: colors.gold, borderRadius: 10,

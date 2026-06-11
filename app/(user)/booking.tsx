@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, TextInput, KeyboardAvoidingView,
-  Platform, Dimensions, BackHandler,
+  Platform, BackHandler,
 } from 'react-native';
 import {
   CheckCircle, ChevronLeft, CalendarDays,
@@ -20,8 +20,8 @@ import {
 import {
   notifyAdmins, scheduleBookingReminder, cancelBookingReminder,
 } from '../../lib/utils/notifications';
+import type { Service as ServiceRow } from '../../lib/types';
 
-const { width } = Dimensions.get('window');
 const GOLD      = '#D4AF37';
 const BG        = '#0B0B0F';
 const CARD      = 'rgba(255,255,255,0.05)';
@@ -31,7 +31,7 @@ const GOLD_BD   = 'rgba(212,175,55,0.28)';
 const WHITE     = '#FFFFFF';
 const MUTED     = 'rgba(255,255,255,0.42)';
 
-interface Service { id: string; name: string; price_ils: number; duration_minutes: number; }
+type Service = Pick<ServiceRow, 'id' | 'name' | 'price_ils' | 'duration_minutes'>;
 type Step = 1 | 2 | 3 | 4;
 type Mode = 'choose' | 'regular' | 'groom';
 

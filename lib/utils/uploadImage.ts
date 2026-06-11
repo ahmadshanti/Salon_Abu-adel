@@ -9,7 +9,7 @@ export async function uploadImage(
 ): Promise<{ url: string | null; error: string | null }> {
   try {
     const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: 'base64' as any,
+      encoding: FileSystem.EncodingType.Base64,
     });
 
     if (!base64) return { url: null, error: 'فشل قراءة الصورة من الجهاز' };
@@ -26,7 +26,7 @@ export async function uploadImage(
 
     const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path);
     return { url: urlData.publicUrl, error: null };
-  } catch (e: any) {
-    return { url: null, error: e?.message ?? 'خطأ غير معروف' };
+  } catch (e) {
+    return { url: null, error: e instanceof Error ? e.message : 'خطأ غير معروف' };
   }
 }

@@ -6,13 +6,9 @@ import {
 import { useRouter } from 'expo-router';
 import { Mail, ChevronLeft, MailCheck } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
+import { authPalette } from '../../constants/theme';
 
-const GOLD    = '#D4AF37';
-const BG      = '#0B0B0F';
-const BORDER  = 'rgba(255,255,255,0.08)';
-const GOLD_BD = 'rgba(212,175,55,0.30)';
-const WHITE   = '#FFFFFF';
-const MUTED   = 'rgba(255,255,255,0.40)';
+const { GOLD, BG, BORDER, GOLD_BD, WHITE, MUTED } = authPalette;
 
 // Must be whitelisted in Supabase Dashboard → Auth → URL Configuration → Redirect URLs
 const RESET_REDIRECT_URL = 'salon-abu-adel://reset-password';

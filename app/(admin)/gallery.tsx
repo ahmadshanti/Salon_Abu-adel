@@ -10,27 +10,20 @@ import {
   ActivityIndicator,
   Dimensions,
   RefreshControl,
-  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Plus, Trash2, LayoutGrid, ArrowLeft } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { Plus, Trash2, LayoutGrid } from 'lucide-react-native';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../constants/theme';
 import { uploadImage } from '../../lib/utils/uploadImage';
-import { navigateBack } from '../../lib/utils/navigation';
+import { AdminHeader } from '../../components/AdminHeader';
+import { LoadingScreen } from '../../components/LoadingScreen';
+import type { GalleryImage } from '../../lib/types';
 
 const { width } = Dimensions.get('window');
 const IMG_SIZE = (width - 52) / 2;
 
-interface GalleryImage {
-  id: string;
-  image_url: string;
-  display_order: number;
-}
-
 export default function AdminGallery() {
-  const router = useRouter();
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -55,7 +48,7 @@ export default function AdminGallery() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       quality: 0.85,
     });
@@ -97,13 +90,7 @@ export default function AdminGallery() {
     ]);
   }
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.gold} />
-      </View>
-    );
-  }
+  if (loading) return <LoadingScreen />;
 
   return (
     <View style={styles.container}>
@@ -118,32 +105,26 @@ export default function AdminGallery() {
           />
         }
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigateBack(router, '/(admin)')}>
-            <ArrowLeft size={18} color={colors.gold} strokeWidth={2} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleRow}>
-            <View style={styles.headerIconWrap}>
-              <LayoutGrid size={20} color={colors.gold} strokeWidth={1.5} />
-            </View>
-            <Text style={styles.headerTitle}>معرض الصور</Text>
-          </View>
-          <TouchableOpacity
-            style={[styles.addBtn, uploading && styles.addBtnDisabled]}
-            onPress={pickAndUpload}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <ActivityIndicator size="small" color={colors.background} />
-            ) : (
-              <>
-                <Plus size={16} color={colors.background} strokeWidth={2.5} />
-                <Text style={styles.addBtnText}>إضافة</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
+        <AdminHeader
+          icon={LayoutGrid}
+          title="معرض الصور"
+          right={
+            <TouchableOpacity
+              style={[styles.addBtn, uploading && styles.addBtnDisabled]}
+              onPress={pickAndUpload}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <ActivityIndicator size="small" color={colors.background} />
+              ) : (
+                <>
+                  <Plus size={16} color={colors.background} strokeWidth={2.5} />
+                  <Text style={styles.addBtnText}>إضافة</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          }
+        />
 
         {/* Count badge */}
         {images.length > 0 && (
@@ -179,37 +160,7 @@ export default function AdminGallery() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
   scroll: { paddingBottom: 40 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: colors.goldFaint, borderWidth: 1, borderColor: colors.goldLight,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  headerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  headerIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.goldFaint,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: { color: colors.white, fontSize: 22, fontWeight: '700' },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
